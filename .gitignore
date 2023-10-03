@@ -1,0 +1,11 @@
+/target
+
+# Compiled files
+/target/
+
+# IDE files
+.idea/
+*.iml
+
+# macOS files
+.DS_Store
