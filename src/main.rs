@@ -40,15 +40,89 @@ impl From<hyper::http::Error> for ProxyError {
     }
 }
 
+async fn handle_connect(
+    mut req: Request<Body>,
+    addr: String,
+) -> Result<Response<Body>, ProxyError> {
+    println!("Starting CONNECT tunnel to {}", addr);
+    match tokio::net::TcpStream::connect(&addr).await {
+        Ok(upstream) => {
+            println!("Successfully connected to upstream {}", addr);
+            let response = Response::builder()
+                .status(hyper::StatusCode::OK)
+                .body(Body::empty())?;
+
+            tokio::spawn(async move {
+                match hyper::upgrade::on(&mut req).await {
+                    Ok(upgraded) => {
+                        println!("Connection upgraded for {}", addr);
+                        let (mut client_read, mut client_write) =
+                            tokio::io::split(upgraded);
+                        let (mut upstream_read, mut upstream_write) =
+                            upstream.into_split();
+
+                        let client_to_server = async {
+                            let result = tokio::io::copy(&mut client_read, &mut upstream_write).await;
+                            println!("Client to server copy finished for {}: {:?}", addr, result);
+                            result
+                        };
+
+                        let server_to_client = async {
+                            let result = tokio::io::copy(&mut upstream_read, &mut client_write).await;
+                            println!("Server to client copy finished for {}: {:?}", addr, result);
+                            result
+                        };
+
+                        match tokio::try_join!(client_to_server, server_to_client) {
+                            Ok((from_client, from_server)) => {
+                                println!("Tunnel closed for {}. Bytes client->server: {}, server->client: {}",
+                                         addr, from_client, from_server);
+                            }
+                            Err(e) => eprintln!("Error in tunnel for {}: {}", addr, e),
+                        }
+                    }
+                    Err(e) => eprintln!("Upgrade error for {}: {}", addr, e),
+                }
+            });
+
+            Ok(response)
+        }
+        Err(e) => {
+            eprintln!("Failed to connect to upstream {}: {}", addr, e);
+            Ok(Response::builder()
+                .status(hyper::StatusCode::BAD_GATEWAY)
+                .body(Body::empty())?)
+        }
+    }
+}
+
 async fn handle_request(
-    req: Request<Body>,
+    mut req: Request<Body>,
     client: Client<hyper::client::HttpConnector>
 ) -> Result<Response<Body>, ProxyError> {
-    let forwarded_req = Request::builder()
-        .method(req.method())
-        .uri(req.uri())
-        .body(req.into_body())?;
+    if req.method() == hyper::Method::CONNECT {
+        if let Some(addr) = req.uri().authority().map(|auth| auth.to_string()) {
+            println!("CONNECT request to {}", addr);
+            return handle_connect(req, addr).await;
+        }
+        return Ok(Response::builder()
+            .status(hyper::StatusCode::BAD_REQUEST)
+            .body(Body::empty())?);
+    }
 
+    // Regular proxy request handling
+    let mut builder = Request::builder()
+        .method(req.method())
+        .uri(req.uri());
+
+    // Copy headers from original request
+    if let Some(headers) = builder.headers_mut() {
+        for (name, value) in req.headers() {
+            headers.insert(name, value.clone());
+        }
+    }
+
+    let forwarded_req = builder.body(req.into_body())?;
     let resp = client.request(forwarded_req).await?;
     Ok(resp)
 }
@@ -68,7 +142,6 @@ async fn run_http_server(
     server.await?;
     Ok(())
 }
-
 async fn run_https_server(
     addr: SocketAddr,
     tls_config: ServerConfig,
@@ -89,6 +162,7 @@ async fn run_https_server(
                     let service = service_fn(move |req| handle_request(req, client.clone()));
                     if let Err(e) = hyper::server::conn::Http::new()
                         .serve_connection(tls_stream, service)
+                        .with_upgrades()  // Add this line
                         .await
                     {
                         eprintln!("Error serving TLS connection: {}", e);
