@@ -4,7 +4,7 @@ use hyper::{Body, Client};
 use rustls::{PrivateKey, ServerConfig};
 
 #[derive(Debug)]
-enum ProxyError {
+pub enum ProxyError {
     HyperError(hyper::Error),
     HttpError(hyper::http::Error),
 }
