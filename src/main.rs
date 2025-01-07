@@ -11,6 +11,27 @@ use std::{
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(long, default_value = "3000")]
+    http_port: u16,
+
+    #[arg(long, default_value = "3001")]
+    https_port: u16,
+
+    #[arg(long, default_value = "cert.pem")]
+    cert: String,
+
+    #[arg(long, default_value = "key.pem")]
+    key: String,
+
+    #[arg(long, default_value = "127.0.0.1")]
+    bind: String,
+}
+
 #[derive(Debug)]
 enum ProxyError {
     HyperError(hyper::Error),
@@ -205,6 +226,23 @@ fn create_tls_config(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let args = Args::parse();
+
+    let http_addr: SocketAddr = format!("{}:{}", args.bind, args.http_port)
+        .parse()
+        .expect("Invalid HTTP address");
+    let https_addr: SocketAddr = format!("{}:{}", args.bind, args.https_port)
+        .parse()
+        .expect("Invalid HTTPS address");
+
+    let tls_config = create_tls_config(&args.cert, &args.key)?;
+
+    println!("Starting proxy server:");
+    println!("  HTTP on {}", http_addr);
+    println!("  HTTPS on {}", https_addr);
+    println!("  Using cert: {}", args.cert);
+    println!("  Using key: {}", args.key);
+
     let http_addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let https_addr = SocketAddr::from(([127, 0, 0, 1], 3001));
     let tls_config = create_tls_config("cert.pem", "key.pem")?;
