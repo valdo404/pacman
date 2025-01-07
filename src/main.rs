@@ -1,19 +1,19 @@
 mod proxy;
 use hyper::{
-    service::{make_service_fn, service_fn},
-    Body, Client, Error, Request, Response, Server,
+    service::{make_service_fn, service_fn}
+    , Client, Error, Server,
 };
-use rustls::{PrivateKey, ServerConfig};
+use rustls::ServerConfig;
 use std::{
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Display},
     net::SocketAddr,
     sync::Arc,
 };
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
-use clap::Parser;
 use crate::proxy::{create_tls_config, handle_request};
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(name = "pacman")]
