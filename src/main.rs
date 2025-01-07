@@ -14,7 +14,10 @@ use tokio_rustls::TlsAcceptor;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(name = "pacman")]
+#[command(author = "Laurent Valdes")]
+#[command(version = "0.1.0")]
+#[command(about = "A simple HTTP/HTTPS proxy", long_about = None)]
 struct Args {
     #[arg(long, default_value = "3000")]
     http_port: u16,
@@ -242,10 +245,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  HTTPS on {}", https_addr);
     println!("  Using cert: {}", args.cert);
     println!("  Using key: {}", args.key);
-
-    let http_addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    let https_addr = SocketAddr::from(([127, 0, 0, 1], 3001));
-    let tls_config = create_tls_config("cert.pem", "key.pem")?;
 
     tokio::select! {
         result = run_http_server(http_addr, Client::new()) => {
