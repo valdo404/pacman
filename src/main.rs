@@ -1,4 +1,6 @@
 mod proxy;
+mod pac;
+
 use hyper::{
     service::{make_service_fn, service_fn}
     , Client, Error, Server,
