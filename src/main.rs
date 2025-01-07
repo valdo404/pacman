@@ -1,44 +1,40 @@
-use hyper::{Body, Client, Error, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
-use std::convert::Infallible;
+use hyper::{Body, Client, Error, Request, Response, Server};
 use std::fmt::{Debug, Display, Formatter};
 use std::net::SocketAddr;
-use tokio::net::TcpListener;
-use hyper::server::conn::Http;
 
-enum MyError {
+enum ProxyError {
     HyperError(hyper::Error),
     HttpError(hyper::http::Error),
-    // ... add more error types if needed
 }
 
-impl From<hyper::Error> for MyError {
+impl From<hyper::Error> for ProxyError {
     fn from(err: hyper::Error) -> Self {
-        MyError::HyperError(err)
+        ProxyError::HyperError(err)
     }
 }
 
-impl Debug for MyError {
+impl Debug for ProxyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
 }
 
-impl Display for MyError {
+impl Display for ProxyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "My custom error")
+        write!(f, "Proxy error occurred")
     }
 }
 
-impl std::error::Error for MyError {}
+impl std::error::Error for ProxyError {}
 
-impl From<hyper::http::Error> for MyError {
+impl From<hyper::http::Error> for ProxyError {
     fn from(err: hyper::http::Error) -> Self {
-        MyError::HttpError(err)
+        ProxyError::HttpError(err)
     }
 }
 
-async fn handle_request(req: Request<Body>, client: Client<hyper::client::HttpConnector>) -> Result<Response<Body>, MyError> {
+async fn handle_request(req: Request<Body>, client: Client<hyper::client::HttpConnector>) -> Result<Response<Body>, ProxyError> {
     let forwarded_req = Request::builder()
         .method(req.method())
         .uri(req.uri())
