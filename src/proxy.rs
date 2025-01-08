@@ -1,7 +1,33 @@
-use std::fmt::{Display, Formatter};
 use http::{Request, Response};
 use hyper::{Body, Client};
-use rustls::{PrivateKey, ServerConfig};
+use nom::Parser;
+use rustls::{Certificate, PrivateKey, ServerConfig};
+use std::any::{Any, TypeId};
+use std::fmt::{Display, Formatter};
+use tls_parser::{TlsCipherSuiteID, TlsExtension, TlsExtensionType, TlsMessage, TlsMessageHandshake, TlsVersion};
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+
+#[derive(Debug)]
+struct TlsHandshakeInfo {
+    sni: Option<String>,
+    version: Option<TlsVersion>,
+    cipher_suites: Vec<TlsCipherSuiteID>,
+    alpn_protocols: Vec<Vec<u8>>,
+    supported_versions: Vec<TlsVersion>,
+    signature_algorithms: Vec<u16>,
+    extensions: Vec<TypeId>,
+}
+
+
+#[derive(Debug)]
+pub struct OwnedClientHello {
+    pub version: TlsVersion,
+    pub sni: Option<String>,
+    pub alpn: Vec<Vec<u8>>,
+    pub cipher_suites: Vec<TlsCipherSuiteID>,
+    pub extensions: Vec<u16>,
+}
 
 #[derive(Debug)]
 pub enum ProxyError {
@@ -40,7 +66,7 @@ pub fn create_tls_config(
     let cert_file = std::fs::File::open(cert_path)?;
     let key_file = std::fs::File::open(key_path)?;
 
-    let cert_chain = rustls_pemfile::certs(&mut std::io::BufReader::new(cert_file))?
+    let cert_chain: Vec<Certificate> = rustls_pemfile::certs(&mut std::io::BufReader::new(cert_file))?
         .into_iter()
         .map(rustls::Certificate)
         .collect();
@@ -60,7 +86,6 @@ pub fn create_tls_config(
     Ok(config)
 }
 
-
 async fn handle_connect(
     mut req: Request<Body>,
     addr: String,
@@ -77,10 +102,25 @@ async fn handle_connect(
                 match hyper::upgrade::on(&mut req).await {
                     Ok(upgraded) => {
                         println!("Connection upgraded for {}", addr);
-                        let (mut client_read, mut client_write) =
-                            tokio::io::split(upgraded);
-                        let (mut upstream_read, mut upstream_write) =
-                            upstream.into_split();
+                        let (mut client_read, mut client_write) = tokio::io::split(upgraded);
+                        let (mut upstream_read, mut upstream_write) = upstream.into_split();
+
+                        let mut peek_buffer = [0u8; 1024];
+
+                        match client_read.read(&mut peek_buffer).await {
+                            Ok(n) if n > 0 => {
+                                if peek_buffer[0] == 0x16 {
+                                    if let Some(sni) = extract_tls_info(&peek_buffer[..n]) {
+                                        println!("Detected SNI in CONNECT tunnel: {:?}", sni);
+                                    }
+                                }
+                                if let Err(e) = upstream_write.write_all(&peek_buffer[..n]).await {
+                                    eprintln!("Failed to forward initial data: {}", e);
+                                    return;
+                                }
+                            }
+                            _ => println!("Unable to read initial TLS handshake data"),
+                        }
 
                         let client_to_server = async {
                             let result = tokio::io::copy(&mut client_read, &mut upstream_write).await;
@@ -114,6 +154,54 @@ async fn handle_connect(
                 .status(hyper::StatusCode::BAD_GATEWAY)
                 .body(Body::empty())?)
         }
+    }
+}
+
+fn extract_tls_info(data: &[u8]) -> Option<OwnedClientHello> {
+    // Parse record header
+    let (_, record_header) = tls_parser::parse_tls_record_header(data).ok()?;
+    if record_header.record_type != tls_parser::TlsRecordType::Handshake {
+        return None;
+    }
+
+    // Parse plaintext, get first handshake message
+    let (_, msgs) = tls_parser::parse_tls_plaintext(data).ok()?;
+    let msg = msgs.msg.first()?;
+
+    // Check if it's a ClientHello
+    if let TlsMessage::Handshake(TlsMessageHandshake::ClientHello(hello)) = msg {
+        let mut owned = OwnedClientHello {
+            version: hello.version,
+            sni: None,
+            alpn: Vec::new(),
+            cipher_suites: hello.ciphers.to_vec(),
+            extensions: Vec::new(),
+        };
+
+        if let Some(ext_data) = hello.ext {
+            if let Ok((_, exts)) = tls_parser::parse_tls_extensions(ext_data) {
+                for ext in exts {
+                    let ext_id = TlsExtensionType::from(&ext).0;
+                    owned.extensions.push(ext_id);
+
+                    match ext {
+                        TlsExtension::SNI(sni) => {
+                            if let Some(name) = sni.first() {
+                                owned.sni = String::from_utf8(name.1.to_vec()).ok();
+                            }
+                        },
+                        TlsExtension::ALPN(alpn) => {
+                            owned.alpn = alpn.iter().map(|p| p.to_vec()).collect();
+                        },
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        Some(owned)
+    } else {
+        None
     }
 }
 
