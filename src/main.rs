@@ -55,7 +55,6 @@ async fn run_http_server(
     server.await?;
     Ok(())
 }
-
 async fn run_https_server(
     addr: SocketAddr,
     tls_config: ServerConfig,
@@ -73,10 +72,24 @@ async fn run_https_server(
         tokio::spawn(async move {
             match tls_acceptor.accept(stream).await {
                 Ok(tls_stream) => {
+                    let connection_info = tls_stream.get_ref();
+                    let protocol = connection_info.1.alpn_protocol();
+                    let version = connection_info.1.protocol_version();
+
+                    // Extract SNI
+                    let sni = if let Some(server_name) = connection_info.1.server_name() {
+                        server_name
+                    } else {
+                        "No SNI"
+                    };
+
+                    println!("New TLS connection from {}: SNI: {}, Protocol: {:?}, Version: {:?}",
+                             addr, sni, protocol, version);
+
                     let service = service_fn(move |req| handle_request(req, client.clone()));
                     if let Err(e) = hyper::server::conn::Http::new()
                         .serve_connection(tls_stream, service)
-                        .with_upgrades()  // Add this line
+                        .with_upgrades()
                         .await
                     {
                         eprintln!("Error serving TLS connection: {}", e);
