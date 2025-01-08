@@ -71,13 +71,13 @@ pub fn create_tls_config(
         .map(rustls::Certificate)
         .collect();
 
-    let key = rustls_pemfile::pkcs8_private_keys(&mut std::io::BufReader::new(key_file))?
+    let key: PrivateKey = rustls_pemfile::pkcs8_private_keys(&mut std::io::BufReader::new(key_file))?
         .into_iter()
         .map(PrivateKey)
         .next()
         .ok_or("no private key found")?;
 
-    let mut config = ServerConfig::builder()
+    let mut config: ServerConfig = ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)?;
@@ -158,17 +158,14 @@ async fn handle_connect(
 }
 
 fn extract_tls_info(data: &[u8]) -> Option<OwnedClientHello> {
-    // Parse record header
     let (_, record_header) = tls_parser::parse_tls_record_header(data).ok()?;
     if record_header.record_type != tls_parser::TlsRecordType::Handshake {
         return None;
     }
 
-    // Parse plaintext, get first handshake message
     let (_, msgs) = tls_parser::parse_tls_plaintext(data).ok()?;
     let msg = msgs.msg.first()?;
 
-    // Check if it's a ClientHello
     if let TlsMessage::Handshake(TlsMessageHandshake::ClientHello(hello)) = msg {
         let mut owned = OwnedClientHello {
             version: hello.version,
