@@ -1,5 +1,5 @@
 use crate::logic::PacExpression;
-use crate::conditions::parse_condition;
+use crate::conditions::{parse_condition, PacCondition};
 use crate::proxy_types::ProxyType;
 use boa_engine::ast::expression::literal::Literal;
 use boa_engine::ast::scope::Scope;
@@ -9,31 +9,45 @@ use boa_engine::interner::Interner;
 use boa_engine::parser::Parser;
 use boa_engine::Source;
 
-fn build_pac_expression(script: Script, interner: &Interner) -> PacExpression {
-    process_statement_list(script.statements(), interner)
+fn build_pac_expression(script: Script, interner: &Interner) -> Option<PacExpression> {
+    for statement_item in script.statements().iter() {
+        match statement_item {
+            StatementListItem::Declaration(dec  ) => {
+                return process_find_proxy(dec, interner);
+            }
+
+            StatementListItem::Statement(statement) => {
+                return None;
+            }
+        }
+    }
+
+    None
 }
 
-fn process_statement_list(statement_list: &StatementList, interner: &Interner) -> PacExpression {
-    // We'll take the last meaningful expression as the result
-    let mut final_expression = PacExpression::Proxy(ProxyType::Direct); // Default fallback
+fn process_statement_list(statement_list: &StatementList, interner: &Interner) -> Option<PacExpression> {
+    let mut expressions = Vec::new();
 
     for statement_item in statement_list.statements().iter() {
         match statement_item {
             StatementListItem::Statement(statement) => {
                 if let Some(expr) = process_statement(statement, interner) {
-                    final_expression = expr;
+                    expressions.push(expr);
                 }
             }
-            StatementListItem::Declaration(declaration) => {
-                if let Some(expr) = process_find_proxy(declaration, interner) {
-                    final_expression = expr;
-                }
+            StatementListItem::Declaration(_) => {
+                return None;
             }
         }
     }
 
-    final_expression
+    match expressions.len() {
+        0 => None,
+        1 => expressions.pop(),
+        _ => Some(PacExpression::Chain(expressions)),
+    }
 }
+
 
 
 fn process_statement(statement: &Statement, interner: &Interner) -> Option<PacExpression> {
@@ -65,17 +79,16 @@ fn parse_if_method(interner: &Interner, if_stmt: &&If) -> Option<PacExpression> 
     let condition = parse_condition(&if_stmt.cond(), interner)?;
 
     let body = if let Statement::Block(block) = if_stmt.body() {
-        Box::new(process_statement_list(block.statement_list(), interner))
+       process_statement_list(block.statement_list(), interner)
     } else if let Statement::Return(return_statement) = if_stmt.body() {
-        Box::new(parse_return(interner, return_statement)
-            .unwrap_or(PacExpression::Proxy(ProxyType::Direct)))
+        parse_return(interner, return_statement)
     } else {
-        Box::new(process_statement_list(
+        process_statement_list(
             &StatementList::new(vec![
                 StatementListItem::Statement(if_stmt.body().clone())
             ].into_boxed_slice(),
                                 false),
-            interner))
+            interner)
     };
 
     // Handle else branch if it exists
@@ -86,7 +99,6 @@ fn parse_if_method(interner: &Interner, if_stmt: &&If) -> Option<PacExpression> 
             }
             Statement::Return(return_stmt) => {
                 parse_return(interner, return_stmt)
-                    .unwrap_or(PacExpression::Proxy(ProxyType::Direct))
             }
             _ => process_statement_list(
                 &StatementList::new(vec![
@@ -96,24 +108,71 @@ fn parse_if_method(interner: &Interner, if_stmt: &&If) -> Option<PacExpression> 
                 interner)
         };
 
-        PacExpression::Condition(Box::new(condition), body, Some(Box::new(else_body)))
+        PacExpression::Condition(Box::new(condition), Box::new(body.unwrap()), Some(Box::new(else_body.unwrap())))
     } else {
-        PacExpression::Condition(Box::new(condition), body, None)
+        PacExpression::Condition(Box::new(condition), Box::new(body.unwrap()), None)
     };
 
     Some(complete_expression)
 }
 
+fn parse_find_proxy_body(statement_list: &StatementList, interner: &Interner) -> PacExpression {
+    let mut current_expression = PacExpression::Proxy(ProxyType::Direct);
+
+    for statement_item in statement_list.statements().iter() {
+        match statement_item {
+            StatementListItem::Statement(statement) => {
+
+                if let Some(expr) = process_statement(statement, interner) {
+                    current_expression = build_nested_condition(current_expression, expr);
+                }
+            }
+            _ => {} // Ignore other types of statement list items
+        }
+    }
+
+    current_expression
+}
+
+
+fn build_nested_condition(current: PacExpression, new_expr: PacExpression) -> PacExpression {
+    // Create nested conditions or chain expressions
+    match current {
+        PacExpression::Condition(condition, if_branch, None) => {
+            // If current expression is an incomplete condition, complete it
+            PacExpression::Condition(condition, if_branch, Some(Box::new(new_expr)))
+        },
+        PacExpression::Condition(condition, if_branch, Some(else_branch)) => {
+            // If current condition is already complete, nest further
+            PacExpression::Condition(
+                condition,
+                if_branch,
+                Some(Box::new(build_nested_condition(*else_branch, new_expr)))
+            )
+        },
+        _ => {
+            // For other cases, create a new condition
+            PacExpression::Condition(
+                Box::new(PacCondition::Boolean(true)),
+                Box::new(current),
+                Some(Box::new(new_expr))
+            )
+        }
+    }
+}
+
+
 fn process_find_proxy(declaration: &Declaration, interner: &Interner) -> Option<PacExpression> {
     if let Declaration::FunctionDeclaration(function_decl) = declaration {
         if let Some(function_name) = interner.resolve(function_decl.name().sym()) {
             if function_name.utf8().unwrap() == "FindProxyForURL" {
-                return Some(process_statement_list(function_decl.body().statement_list(), interner));
+                return process_statement_list(function_decl.body().statement_list(), interner);
             }
         }
     }
     None
 }
+
 
 #[cfg(test)]
 mod to_js_tests {
@@ -149,7 +208,7 @@ mod pac_files_test {
             .expect("Failed to parse PAC file");
 
         // Process the AST
-        let pac_expression: PacExpression = build_pac_expression(parse_result, &interner);
+        let pac_expression: PacExpression = build_pac_expression(parse_result, &interner).unwrap();
         println!("PacExpression:\n{:#?}", pac_expression);
         // Verify the structure
         match pac_expression {
@@ -169,7 +228,7 @@ mod pac_files_test {
 
                 // Verify the else branch returns the proxy chain
                 match *else_branch {
-                    PacExpression::Proxy(ProxyType::Chain(ref chain)) => {
+                    PacExpression::Proxy(ProxyType::ProxyFallbackChain(ref chain)) => {
                         assert_eq!(chain.len(), 1);
                         assert!(matches!(
                             &chain[0],
@@ -204,15 +263,14 @@ mod pac_files_test {
             .parse_script(&Scope::new_global(), &mut interner)
             .expect("Failed to parse PAC file");
 
-        let pac_expression = build_pac_expression(parse_result, &interner);
+        let pac_expression = build_pac_expression(parse_result, &interner).unwrap();
 
-        // Verify the structure without using box patterns
         match pac_expression {
             PacExpression::Condition(_, if_branch, Some(else_branch)) => {
                 assert!(matches!(*if_branch, PacExpression::Proxy(ProxyType::Direct)));
 
                 match *else_branch {
-                    PacExpression::Proxy(ProxyType::Chain(ref chain)) => {
+                    PacExpression::Proxy(ProxyType::ProxyFallbackChain(ref chain)) => {
                         assert_eq!(chain.len(), 1);
                         assert!(matches!(
                         &chain[0],
@@ -251,9 +309,8 @@ mod pac_files_test {
             .parse_script(&Scope::new_global(), &mut interner)
             .expect("Failed to parse PAC file");
 
-        let pac_expression = build_pac_expression(parse_result, &interner);
+        let pac_expression = build_pac_expression(parse_result, &interner).unwrap();
         println!("PacExpression JS:\n{}", pac_expression.to_js());
-        println!("PacExpression:\n{:#?}", pac_expression);
 
         // Verify the structure of the PAC expression
         match pac_expression {
@@ -306,6 +363,42 @@ mod pac_files_test {
                 }
             }
             _ => panic!("Expected complex nested condition structure"),
+        }
+    }
+
+    #[test]
+    fn test_pac_file_with_multiple_network_conditions() {
+        let mut interner = Interner::default();
+
+        let pac_content = r#"
+    function FindProxyForURL(url, host) {
+        if (isPlainHostName(host)) return "DIRECT";
+        if (shExpMatch(url,"*bluecoat.com*") ||
+            shExpMatch(url,"*cacheflow.com*"))
+            return "DIRECT";
+        if (isInNet(host, "10.0.0.0", "255.0.0.0") ||
+            isInNet(host, "172.16.0.0", "255.240.0.0") ||
+            isInNet(host, "192.168.0.0", "255.255.0.0") ||
+            isInNet(host, "216.52.23.0", "255.255.255.0") ||
+            isInNet(host, "127.0.0.0", "255.255.255.0") ||
+            isInNet(host, "192.41.79.240", "255.255.255.255"))
+            return "DIRECT";
+        return "PROXY proxy.threatpulse.net:8080; DIRECT";
+        return "PROXY 199.19.250.164:8080; DIRECT";
+    }
+"#;
+
+        let source = Source::from_bytes(pac_content.as_bytes());
+        let parse_result = Parser::new(source)
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("Failed to parse PAC file");
+
+        let pac_expression: PacExpression = build_pac_expression(parse_result, &interner).unwrap();
+        println!("PacExpression JS:\n{}", pac_expression.to_js());
+
+        match pac_expression {
+            PacExpression::Chain(_) => assert!(true),
+            _ => assert!(false),
         }
     }
 }

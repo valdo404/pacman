@@ -9,7 +9,7 @@ pub enum ProxyType {
     Socks5 { host: String, port: u16 },
     Socks { host: String, port: u16 },
     Generic { host: String, port: u16 },
-    Chain(Vec<ProxyType>),  // Compound proxy chain
+    ProxyFallbackChain(Vec<ProxyType>),  // Compound proxy chain
 }
 
 impl ToJs for ProxyType {
@@ -21,7 +21,7 @@ impl ToJs for ProxyType {
 impl ProxyType {
     pub fn from_str(proxy_str: &str) -> Option<Self> {
         if proxy_str.contains(';') {
-            return Some(ProxyType::Chain(
+            return Some(ProxyType::ProxyFallbackChain(
                 proxy_str
                     .split(';')
                     .map(str::trim)
@@ -35,26 +35,33 @@ impl ProxyType {
 
     fn from_single_str(proxy_str: &str) -> Option<Self> {
         let parts: Vec<&str> = proxy_str.trim().split_whitespace().collect();
-        if parts.len() != 2 {
-            return None;
-        }
 
-        let proxy_type = parts[0];
-        let addr_parts: Vec<&str> = parts[1].split(':').collect();
-        if addr_parts.len() != 2 {
-            return None;
-        }
+        match parts.as_slice() {
+            // Direct case
+            ["DIRECT"] => Some(ProxyType::Direct),
 
-        let host = addr_parts[0].to_string();
-        let port = addr_parts[1].parse::<u16>().ok()?;
+            // Proxy cases with host:port
+            [proxy_type, addr] => {
+                let addr_parts: Vec<&str> = addr.split(':').collect();
+                if addr_parts.len() != 2 {
+                    return None;
+                }
 
-        match proxy_type {
-            "HTTP" => Some(ProxyType::Http { host, port }),
-            "HTTPS" => Some(ProxyType::Https { host, port }),
-            "SOCKS4" => Some(ProxyType::Socks4 { host, port }),
-            "SOCKS5" => Some(ProxyType::Socks5 { host, port }),
-            "SOCKS" => Some(ProxyType::Socks { host, port }),
-            "PROXY" => Some(ProxyType::Generic { host, port }),
+                let host = addr_parts[0].to_string();
+                let port = addr_parts[1].parse::<u16>().ok()?;
+
+                match *proxy_type {
+                    "HTTP" => Some(ProxyType::Http { host, port }),
+                    "HTTPS" => Some(ProxyType::Https { host, port }),
+                    "SOCKS4" => Some(ProxyType::Socks4 { host, port }),
+                    "SOCKS5" => Some(ProxyType::Socks5 { host, port }),
+                    "SOCKS" => Some(ProxyType::Socks { host, port }),
+                    "PROXY" => Some(ProxyType::Generic { host, port }),
+                    _ => None,
+                }
+            },
+
+            // Anything else is invalid
             _ => None,
         }
     }
@@ -68,7 +75,7 @@ impl ProxyType {
             ProxyType::Socks5 { host, port } => format!("SOCKS5 {}:{}", host, port),
             ProxyType::Socks { host, port } => format!("SOCKS {}:{}", host, port),
             ProxyType::Generic { host, port } => format!("PROXY {}:{}", host, port),
-            ProxyType::Chain(proxies) => proxies
+            ProxyType::ProxyFallbackChain(proxies) => proxies
                 .iter()
                 .map(|p| p.to_string())
                 .collect::<Vec<_>>()
@@ -89,7 +96,7 @@ mod proxy_parsing_tests {
         let expr = PacExpression::from_proxy_string(proxy_str).unwrap();
         println!("{:?}", expr);
 
-        if let PacExpression::Proxy(ProxyType::Chain(chain)) = expr {
+        if let PacExpression::Proxy(ProxyType::ProxyFallbackChain(chain)) = expr {
             assert_eq!(chain.len(), 2);
 
             assert!(matches!(
@@ -136,7 +143,7 @@ mod proxy_parsing_tests {
         let expr = PacExpression::from_proxy_string(proxy_str).unwrap();
         println!("{:?}", expr);
 
-        if let PacExpression::Proxy(ProxyType::Chain(chain)) = expr {
+        if let PacExpression::Proxy(ProxyType::ProxyFallbackChain(chain)) = expr {
             assert_eq!(chain.len(), 3);
 
             assert!(matches!(
@@ -190,7 +197,7 @@ mod to_js_tests {
 
     #[test]
     fn test_proxy_chain_to_js() {
-        let chain = ProxyType::Chain(vec![
+        let chain = ProxyType::ProxyFallbackChain(vec![
             ProxyType::Generic {
                 host: "primary.example.com".to_string(),
                 port: 8080,

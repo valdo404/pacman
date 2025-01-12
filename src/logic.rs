@@ -10,6 +10,7 @@ pub trait ToJs {
 pub enum PacExpression {
     Proxy(ProxyType),
     Condition(Box<PacCondition>, Box<PacExpression>, Option<Box<PacExpression>>), // condition, if_branch, else_branch
+    Chain(Vec<PacExpression>), // handle multiple expressions
 }
 
 impl ToJs for PacExpression {
@@ -22,6 +23,13 @@ impl ToJs for PacExpression {
                     js.push_str(&format!(" else {{ {} }}", else_expr.to_js()));
                 }
                 js
+            },
+            PacExpression::Chain(expressions) => {
+                expressions
+                    .into_iter()
+                    .map(|expr| expr.to_js())
+                    .collect::<Vec<_>>()
+                    .join("; \n")
             }
         }
     }
