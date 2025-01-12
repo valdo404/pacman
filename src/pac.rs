@@ -124,7 +124,8 @@ mod to_js_tests {
 #[cfg(test)]
 mod pac_files_test {
     use super::*;
-    use crate::conditions::PacCondition;
+    use crate::conditions::{PacCondition, Protocol};
+    use crate::logic::ToJs;
 
     #[test]
     fn test_company_pac_file() {
@@ -225,9 +226,86 @@ mod pac_files_test {
             _ => panic!("Expected Condition with else branch"),
         }
     }
-}
 
-#[test]
-fn test_direct_pac_execution() {
-    // TODO directly call the pac method
+    #[test]
+    fn test_pac_file_with_multiple_conditions() {
+        let mut interner = Interner::default();
+
+        let pac_content = r#"
+    function FindProxyForURL(url, host)
+    {
+        if (isInNet(host, "10.0.1.0", "255.255.255.0")) {
+            return "DIRECT";
+        } else if (url.substring(0, 5) == "http:") {
+            return "PROXY 10.0.1.1:3128";
+        } else if (url.substring(0, 6) == "https:") {
+            return "PROXY 10.0.1.1:3128";
+        } else {
+            return "DIRECT";
+        }
+    }
+"#;
+
+        let source = Source::from_bytes(pac_content.as_bytes());
+        let parse_result = Parser::new(source)
+            .parse_script(&Scope::new_global(), &mut interner)
+            .expect("Failed to parse PAC file");
+
+        let pac_expression = build_pac_expression(parse_result, &interner);
+        println!("PacExpression JS:\n{}", pac_expression.to_js());
+        println!("PacExpression:\n{:#?}", pac_expression);
+
+        // Verify the structure of the PAC expression
+        match pac_expression {
+            PacExpression::Condition(first_condition, first_branch, Some(second_branch)) => {
+                // Check first condition (isInNet)
+                assert!(matches!(
+                *first_condition,
+                PacCondition::IpInNet(ref network, ref mask)
+                if network == "10.0.1.0" && mask == "255.255.255.0"
+            ));
+                assert!(matches!(*first_branch, PacExpression::Proxy(ProxyType::Direct)));
+
+                // Check second (nested) condition
+                match *second_branch {
+                    PacExpression::Condition(nested_condition, http_branch, Some(https_branch)) => {
+                        // Check HTTP condition
+                        assert!(matches!(
+                        *nested_condition,
+                        PacCondition::UrlProtocol(Protocol::Http)
+                    ));
+                        assert!(matches!(
+                        *http_branch,
+                        PacExpression::Proxy(ProxyType::Generic { ref host, port })
+                        if host == "10.0.1.1" && port == 3128
+                    ));
+
+                        // Check HTTPS condition
+                        match *https_branch {
+                            PacExpression::Condition(https_nested_condition, https_proxy_branch, Some(default_branch)) => {
+                                assert!(matches!(
+                                *https_nested_condition,
+                                PacCondition::UrlProtocol(Protocol::Https)
+                            ));
+                                assert!(matches!(
+                                *https_proxy_branch,
+                                PacExpression::Proxy(ProxyType::Generic { ref host, port })
+                                if host == "10.0.1.1" && port == 3128
+                            ));
+
+                                // Check default DIRECT branch
+                                assert!(matches!(
+                                *default_branch,
+                                PacExpression::Proxy(ProxyType::Direct)
+                            ));
+                            }
+                            _ => panic!("Expected nested HTTPS condition"),
+                        }
+                    }
+                    _ => panic!("Expected nested condition for HTTP/HTTPS"),
+                }
+            }
+            _ => panic!("Expected complex nested condition structure"),
+        }
+    }
 }
