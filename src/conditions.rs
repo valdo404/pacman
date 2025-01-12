@@ -194,9 +194,9 @@ impl ToJs for PacCondition {
             PacCondition::DnsDomainIs(domain) =>
                 format!("dnsDomainIs(host, \"{}\")", domain),
             PacCondition::Or(left, right) =>
-                format!("{} || {}", left.to_js(), right.to_js()),
+                format!("({}) || ({})", left.to_js(), right.to_js()),
             PacCondition::And(left, right) =>
-                format!("{} && {}", left.to_js(), right.to_js()),
+                format!("({}) && ({})", left.to_js(), right.to_js()),
             PacCondition::HostEquals(domain) =>
                 format!("host == \"{}\"", domain),
             PacCondition::UrlProtocol(protocol) =>
