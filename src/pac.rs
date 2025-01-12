@@ -229,7 +229,7 @@ mod pac_files_test {
                 // Verify the else branch returns the proxy chain
                 match *else_branch {
                     PacExpression::Proxy(ProxyType::ProxyFallbackChain(ref chain)) => {
-                        assert_eq!(chain.len(), 1);
+                        assert_eq!(chain.len(), 2);
                         assert!(matches!(
                             &chain[0],
                             ProxyType::Generic { host, port }
@@ -271,7 +271,7 @@ mod pac_files_test {
 
                 match *else_branch {
                     PacExpression::Proxy(ProxyType::ProxyFallbackChain(ref chain)) => {
-                        assert_eq!(chain.len(), 1);
+                        assert_eq!(chain.len(), 2);
                         assert!(matches!(
                         &chain[0],
                         ProxyType::Generic { host, port }
