@@ -1,5 +1,8 @@
 mod proxy;
 mod pac;
+mod logic;
+mod conditions;
+mod proxy_types;
 
 use hyper::{
     service::{make_service_fn, service_fn}
@@ -7,7 +10,7 @@ use hyper::{
 };
 use rustls::ServerConfig;
 use std::{
-    fmt::{Debug, Display},
+    fmt::{Debug},
     net::SocketAddr,
     sync::Arc,
 };

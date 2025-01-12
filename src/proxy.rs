@@ -1,8 +1,7 @@
 use http::{Request, Response};
 use hyper::{Body, Client};
-use nom::Parser;
 use rustls::{Certificate, PrivateKey, ServerConfig};
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::fmt::{Display, Formatter};
 use tls_parser::{TlsCipherSuiteID, TlsExtension, TlsExtensionType, TlsMessage, TlsMessageHandshake, TlsVersion};
 use tokio::io::AsyncReadExt;
@@ -203,7 +202,7 @@ fn extract_tls_info(data: &[u8]) -> Option<OwnedClientHello> {
 }
 
 pub async fn handle_request(
-    mut req: Request<Body>,
+    req: Request<Body>,
     client: Client<hyper::client::HttpConnector>
 ) -> Result<Response<Body>, ProxyError> {
     if req.method() == hyper::Method::CONNECT {
