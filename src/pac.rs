@@ -182,6 +182,9 @@ mod to_js_tests {
 
 #[cfg(test)]
 mod pac_files_test {
+    use boa_engine::{js_string, Context, JsString, JsValue, NativeFunction};
+    use boa_engine::object::ObjectInitializer;
+    use boa_engine::property::Attribute;
     use super::*;
     use crate::conditions::{PacCondition, Protocol};
     use crate::logic::ToJs;
@@ -283,6 +286,65 @@ mod pac_files_test {
             }
             _ => panic!("Expected Condition with else branch"),
         }
+    }
+
+    #[test]
+    fn test_call_pac_file_with_multiple_conditions() {
+        let pac_content = r#"
+function FindProxyForURL(url, host)
+{
+    if (isInNet(host, "10.0.1.0", "255.255.255.0")) {
+        return "DIRECT";
+    } else if (url.substring(0, 5) == "http:") {
+        return "PROXY 10.0.1.1:3128";
+    } else if (url.substring(0, 6) == "https:") {
+        return "PROXY 10.0.1.1:3128";
+    } else {
+        return "DIRECT";
+    }
+};
+"#;
+
+        let source = Source::from_bytes(pac_content.as_bytes());
+        let mut context = Context::default();
+        register_globals(&mut context);
+
+        context.eval(Source::from_bytes(pac_content)).unwrap();
+
+        match context.eval(Source::from_bytes(r#"FindProxyForURL("http://www.google.com/","10.2.1.0")"#)) {
+            Ok(res) => {
+                println!(
+                    "{}",
+                    res.to_string(&mut context).unwrap().to_std_string_escaped()
+                );
+            }
+            Err(e) => {
+                // Pretty print the error
+                eprintln!("Uncaught {e}");
+            }
+        };
+    }
+
+    fn register_globals(context: &mut Context) {
+        context
+            .register_global_callable(
+                JsString::from("isInNet"),
+                0,
+                NativeFunction::from_copy_closure(move |values, list, context| {
+                    let host = list.get(0).unwrap().as_string().unwrap().to_std_string_escaped();
+                    let network = list.get(1).unwrap().as_string().unwrap().to_std_string_escaped();
+                    let mask = list.get(2).unwrap().as_string().unwrap().to_std_string_escaped();
+
+                    let result = is_in_net(host.as_str(), network.as_str(), mask.as_str());
+                    Ok(JsValue::from(result))
+                }),
+            )
+            .unwrap();
+    }
+
+    fn is_in_net(host: &str, network: &str, mask: &str) -> bool {
+        // Implement the actual `isInNet` logic here
+        host.starts_with("10.0.1.")
     }
 
     #[test]
