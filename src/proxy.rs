@@ -1,11 +1,14 @@
 use http::{Request, Response};
-use hyper::{Body, Client};
+use hyper::{Body, Client, Error};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use std::any::TypeId;
 use std::fmt::{Display, Formatter};
 use tls_parser::{TlsCipherSuiteID, TlsExtension, TlsExtensionType, TlsMessage, TlsMessageHandshake, TlsVersion};
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
+use crate::encryption::{EncryptedStream, EncryptionError, EncryptionLayer};
+use futures::stream::{IntoStream, MapErr, TryStreamExt};
+use http::header::CONTENT_TYPE;
 
 #[derive(Debug)]
 struct TlsHandshakeInfo {
@@ -30,8 +33,11 @@ pub struct OwnedClientHello {
 
 #[derive(Debug)]
 pub enum ProxyError {
+    Io(std::io::Error),
     HyperError(hyper::Error),
     HttpError(hyper::http::Error),
+    Decryption(String),
+    Hyper(hyper::Error),
 }
 
 impl From<hyper::Error> for ProxyError {
@@ -45,6 +51,9 @@ impl Display for ProxyError {
         match self {
             ProxyError::HyperError(e) => write!(f, "Hyper error: {}", e),
             ProxyError::HttpError(e) => write!(f, "HTTP error: {}", e),
+            ProxyError::Decryption(e) => write!(f, "Decryption error: {}", e),
+            ProxyError::Hyper(e) => write!(f, "Hyper error: {}", e),
+            ProxyError::Io(e) => write!(f, "IO error: {}", e),
         }
     }
 }
@@ -201,10 +210,63 @@ fn extract_tls_info(data: &[u8]) -> Option<OwnedClientHello> {
     }
 }
 
+impl From<EncryptionError> for ProxyError {
+    fn from(err: EncryptionError) -> Self {
+        match err {
+            EncryptionError::Io(io_err) => ProxyError::Io(io_err), // Convert to IO error variant instead
+            EncryptionError::Decryption(msg) => ProxyError::Decryption(msg),
+            EncryptionError::Hyper(err) => ProxyError::Hyper(err),
+        }
+    }
+}
+/*
+/// Handles encrypted traffic by decrypting incoming requests and encrypting outgoing responses.
+///
+/// # Arguments:
+/// * `req` - The incoming HTTP request.
+/// * `client` - The Hyper client for forwarding the request.
+/// * `encryption_layer` - The encryption layer for managing the encryption and decryption.
+///
+/// # Returns:
+/// * `Result<Response<Body>, ProxyError>` - An encrypted response if successful.
+async fn handle_encrypted_traffic(
+    req: Request<Body>,
+    client: Client<hyper::client::HttpConnector>,
+    encryption_layer: EncryptionLayer,
+) -> Result<Response<Body>, ProxyError> {
+    println!("Handling encrypted traffic!");
+
+    // **Decrypt Incoming Request Body using EncryptedStream**
+    let (parts, body) = req.into_parts();
+    let decrypted_stream = EncryptedStream::new(
+        body.into_stream().map_err(|_| EncryptionError::Decryption("Decryption failed".into())).map_err(ProxyError::from),
+        encryption_layer.clone(),
+        false, // Decrypt incoming
+    );
+
+    let decrypted_request = Request::from_parts(parts, Body::wrap_stream(decrypted_stream));
+
+    // **Forward the decrypted request to the backend**
+    let response = client.request(decrypted_request).await.map_err(ProxyError::Hyper)?;
+
+    // **Encrypt Response Body before Sending Back**
+    let (parts, body) = response.into_parts();
+    let encrypted_stream = EncryptedStream::new(
+        body.into_stream().map_err(ProxyError::Hyper),
+        encryption_layer,
+        true, // Encrypt outgoing
+    );
+
+    Ok(Response::from_parts(parts, Body::wrap_stream(encrypted_stream)))
+}*/
+
+
 pub async fn handle_request(
     req: Request<Body>,
     client: Client<hyper::client::HttpConnector>
 ) -> Result<Response<Body>, ProxyError> {
+
+    // Handle HTTP CONNECT requests for HTTPS tunneling
     if req.method() == hyper::Method::CONNECT {
         if let Some(addr) = req.uri().authority().map(|auth| auth.to_string()) {
             println!("CONNECT request to {}", addr);
@@ -215,6 +277,20 @@ pub async fn handle_request(
             .body(Body::empty())?);
     }
 
+    // Initialize encryption layer
+    let encryption_layer = EncryptionLayer::new(3); // Example shift for Caesar cipher
+
+    // **Detect Encrypted Traffic**
+    let is_encrypted = req
+        .headers()
+        .get(CONTENT_TYPE)
+        .map_or(false, |v| v == "application/base32");
+
+    // if req.uri().path() == "/stream-base32" || is_encrypted {
+    //     return handle_encrypted_traffic(req, client, encryption_layer).await;
+    // }
+
+    // **Standard HTTP Proxy Handling (if no encryption)**
     let mut builder = Request::builder()
         .method(req.method())
         .uri(req.uri());
