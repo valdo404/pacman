@@ -3,6 +3,8 @@ mod pac;
 mod logic;
 mod conditions;
 mod proxy_types;
+mod encryption;
+// mod encrypted_client;
 
 use hyper::{
     service::{make_service_fn, service_fn}
