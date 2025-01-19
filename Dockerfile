@@ -8,7 +8,7 @@ COPY . .
 
 RUN cargo build --release --bin encrypted_server
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 RUN apt-get update && \
     apt-get install -y \
@@ -19,7 +19,7 @@ WORKDIR /usr/src/pacman
 
 COPY --from=builder /usr/src/pacman/target/release/encrypted_server /usr/local/bin/encrypted_server
 
-EXPOSE 8080
+EXPOSE 3000
 
 # Run the encrypted_server binary
 CMD ["encrypted_server"]
