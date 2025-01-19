@@ -45,57 +45,57 @@ async fn request_to_curl_command(req: &mut Request<Body>) -> String {
     curl
 }
 
-#[tokio::main]
-async fn main() {
-    let encryption_layer = EncryptionLayer::new(3); // Shift = 3 for Caesar cipher example
-    let client = Client::new();
+    #[tokio::main]
+    async fn main() {
+        let encryption_layer = EncryptionLayer::new(3); // Shift = 3 for Caesar cipher example
+        let client = Client::new();
 
-    // **Encrypt the request body**
-    let request_text = "This is a secure request but a bit different !";
-    let stream = futures::stream::once(async move { Ok(Bytes::from(request_text)) });
-    let encrypted_stream = EncryptedStream::new(
-        Box::pin(stream),
-        encryption_layer.clone(),
-        true, // Encrypt outgoing request
-    );
+        // **Encrypt the request body**
+        let request_text = "This is a secure request but a bit different !";
+        let stream = futures::stream::once(async move { Ok(Bytes::from(request_text)) });
+        let encrypted_stream = EncryptedStream::new(
+            Box::pin(stream),
+            encryption_layer.clone(),
+            true, // Encrypt outgoing request
+        );
 
-    let mut req = Request::builder()
-        .method(Method::POST)
-        .uri("http://127.0.0.1:3000")
-        .header("Content-Type", "application/base32")
-        .body(Body::wrap_stream(encrypted_stream))
-        .unwrap();
+        let mut req = Request::builder()
+            .method(Method::POST)
+            .uri("http://127.0.0.1:3000")
+            .header("Content-Type", "application/base32")
+            .body(Body::wrap_stream(encrypted_stream))
+            .unwrap();
 
-    println!("Equivalent curl command:");
-    println!("{}", request_to_curl_command(&mut req).await);
-    println!("Sending encrypted request to server...");
+        println!("Equivalent curl command:");
+        println!("{}", request_to_curl_command(&mut req).await);
+        println!("Sending encrypted request to server...");
 
-    // **Send the encrypted request to the server**
-    match client.request(req).await {
-        Ok(resp) => {
-            println!("Response received, decrypting...");
+        // **Send the encrypted request to the server**
+        match client.request(req).await {
+            Ok(resp) => {
+                println!("Response received, decrypting...");
 
-            let (parts, body) = resp.into_parts();
-            let stream = body.into_stream()
-                .map_err(|_| EncryptionError::Decryption("Decryption failed".into()));
+                let (parts, body) = resp.into_parts();
+                let stream = body.into_stream()
+                    .map_err(|_| EncryptionError::Decryption("Decryption failed".into()));
 
-            let decrypted_stream = EncryptedStream::new(
-                Box::pin(stream),
-                encryption_layer.clone(),
-                false, // Decrypt incoming response
-            );
+                let decrypted_stream = EncryptedStream::new(
+                    Box::pin(stream),
+                    encryption_layer.clone(),
+                    false, // Decrypt incoming response
+                );
 
-            let mut decrypted_response_body = Vec::new();
-            let mut stream = decrypted_stream;
-            while let Some(chunk) = stream.next().await {
-                match chunk {
-                    Ok(data) => decrypted_response_body.extend_from_slice(&data),
-                    Err(e) => println!("Decryption error: {:?}", e),
+                let mut decrypted_response_body = Vec::new();
+                let mut stream = decrypted_stream;
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(data) => decrypted_response_body.extend_from_slice(&data),
+                        Err(e) => println!("Decryption error: {:?}", e),
+                    }
                 }
-            }
 
-            println!("Decrypted Response: {:?}", String::from_utf8_lossy(&decrypted_response_body));
+                println!("Decrypted Response: {:?}", String::from_utf8_lossy(&decrypted_response_body));
+            }
+            Err(e) => println!("Error sending request: {:?}", e),
         }
-        Err(e) => println!("Error sending request: {:?}", e),
     }
-}
