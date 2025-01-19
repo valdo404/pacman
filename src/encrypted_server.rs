@@ -11,7 +11,7 @@ mod encryption;
 #[tokio::main]
 async fn main() {
     let encryption_layer = EncryptionLayer::new(3); // Shift = 3 for Caesar cipher example
-    let addr = ([127, 0, 0, 1], 3000).into();
+    let addr = ([0, 0, 0, 0], 3000).into();
 
     let server = Server::bind(&addr).serve(make_service_fn(move |_| {
         let encryption_layer = encryption_layer.clone();
@@ -20,7 +20,7 @@ async fn main() {
         }
     }));
 
-    println!("Server running at http://127.0.0.1:3000");
+    println!("Server running at http://0.0.0.0:3000");
     server.await.unwrap();
 }
 
