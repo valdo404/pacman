@@ -3,13 +3,7 @@ mod pac;
 mod logic;
 mod conditions;
 mod proxy_types;
-mod encryption;
-// mod encrypted_client;
 
-use hyper::{
-    service::{make_service_fn, service_fn}
-    , Client, Error, Server,
-};
 use rustls::ServerConfig;
 use std::{
     fmt::{Debug},
@@ -21,6 +15,9 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::proxy::{create_tls_config, handle_request};
 use clap::Parser;
+use hyper::service::service_fn;
+use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
 
 #[derive(Parser, Debug)]
 #[command(name = "pacman")]
@@ -47,7 +44,7 @@ struct Args {
 
 async fn run_http_server(
     addr: SocketAddr,
-    client: Client<hyper::client::HttpConnector>,
+    client: Client<HttpConnector>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server = Server::bind(&addr).serve(make_service_fn(move |_| {
         let client = client.clone();
@@ -63,7 +60,7 @@ async fn run_http_server(
 async fn run_https_server(
     addr: SocketAddr,
     tls_config: ServerConfig,
-    client: Client<hyper::client::HttpConnector>,
+    client: Client<HttpConnector>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
     let listener = TcpListener::bind(addr).await?;

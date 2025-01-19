@@ -1,14 +1,14 @@
+use crate::encryption::{EncryptionError, EncryptionLayer};
+use http::header::CONTENT_TYPE;
 use http::{Request, Response};
-use hyper::{Body, Client, Error};
-use rustls::{Certificate, PrivateKey, ServerConfig};
+use hyper::body::Body;
+use hyper_tls::native_tls::Certificate;
+use rustls::ServerConfig;
 use std::any::TypeId;
 use std::fmt::{Display, Formatter};
 use tls_parser::{TlsCipherSuiteID, TlsExtension, TlsExtensionType, TlsMessage, TlsMessageHandshake, TlsVersion};
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-use crate::encryption::{EncryptedStream, EncryptionError, EncryptionLayer};
-use futures::stream::{IntoStream, MapErr, TryStreamExt};
-use http::header::CONTENT_TYPE;
 
 #[derive(Debug)]
 struct TlsHandshakeInfo {

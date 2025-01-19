@@ -1,11 +1,55 @@
 use base32::{decode, encode, Alphabet};
 use bytes::{Bytes, BytesMut};
-use futures::{Stream, TryStreamExt};
-use hyper::client::HttpConnector;
-use hyper::{Body, Client, Request, Response};
+use futures::Stream;
+use http_body_util::StreamBody;
 use std::error::Error as StdError;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use futures::stream::Once;
+use futures::StreamExt;
+use hyper::body::Frame;
+use hyper::Error;
+
+pub type ConcreteFuture = Pin<Box<dyn Future<Output = Result<Bytes, EncryptionError>> + Send>>;
+pub type ConcreteEncryptedStream = EncryptedStream<Pin<Box<Once<ConcreteFuture>>>>;
+pub type ByteStreamBody = StreamBody<Pin<Box<dyn futures::Stream<Item = Result<hyper::body::Frame<Bytes>, hyper::Error>> + Send>>>;
+
+pub fn encrypt_text(
+    request_text: &str,
+    encryption_layer: EncryptionLayer,
+) -> ConcreteEncryptedStream {
+    let text = request_text.to_string();
+
+    let stream: Once<ConcreteFuture> = futures::stream::once(Box::pin(async move {
+        Ok::<Bytes, EncryptionError>(Bytes::from(text))
+    }) as ConcreteFuture);
+
+    EncryptedStream::new(Box::pin(stream), encryption_layer, true)
+}
+
+
+pub fn to_transformed_body(
+    encrypted_stream: ConcreteEncryptedStream,
+) -> ByteStreamBody {
+    let mapped_stream = encrypted_stream.map(|result| {
+        result
+            .map(hyper::body::Frame::data)
+            .map_err(|enc_err| {
+                eprintln!("Encryption error: {:?}", enc_err);
+                // Hack: attempt to parse an invalid HTTP method, which yields `http::Error`,
+                // then convert that into a `hyper::Error`.
+                unimplemented!() as Error
+            })
+    });
+
+    StreamBody::new(
+        Box::pin(mapped_stream)
+            as Pin<Box<dyn Stream<Item = Result<Frame<Bytes>, hyper::Error>> + Send>>
+    )
+}
+
+
 
 #[derive(Debug)]
 pub enum EncryptionError {
@@ -146,7 +190,9 @@ impl<S> EncryptedStream<S> {
             encrypting,
         }
     }
+
 }
+
 impl<S> Stream for EncryptedStream<S>
 where
     S: Stream<Item = Result<Bytes, EncryptionError>> + Unpin,
@@ -175,41 +221,4 @@ where
             Poll::Pending => Poll::Pending,
         }
     }
-}
-
-/// Handles incoming encrypted HTTP requests, decrypts them, forwards the request, and re-encrypts the response.
-///
-/// # Arguments
-/// - `req`: The incoming HTTP request.
-/// - `client`: The Hyper client used for forwarding the request.
-/// - `encryption`: The encryption layer for handling the data transformation.
-///
-/// # Returns
-/// - A `Response<Body>` with the processed data, either encrypted or decrypted.
-pub async fn handle_encrypted_request(
-    req: Request<Body>,
-    client: Client<HttpConnector>,
-    encryption: EncryptionLayer,
-) -> Result<Response<Body>, EncryptionError> {
-    if req.method() != hyper::Method::GET {
-        return Ok(Response::builder()
-            .status(400)
-            .body(Body::from("Only GET requests are supported"))
-            .unwrap());
-    }
-
-    let (parts, body) = req.into_parts();
-    let encrypted_stream = EncryptedStream::new(
-        body.into_stream().map_err(EncryptionError::from),
-        encryption.clone(),
-        false
-    );
-
-    let decrypted_req = Request::from_parts(parts, Body::wrap_stream(encrypted_stream));
-    let resp = client.request(decrypted_req).await.map_err(EncryptionError::from)?;
-
-    let (parts, body) = resp.into_parts();
-    let encrypted_stream = EncryptedStream::new(body.into_stream().map_err(EncryptionError::from), encryption, true);
-
-    Ok(Response::from_parts(parts, Body::wrap_stream(encrypted_stream)))
 }

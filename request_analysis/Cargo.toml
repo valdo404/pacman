@@ -1,0 +1,12 @@
+[package]
+name = "request_analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytes = { workspace = true }
+futures-util = { workspace = true }
+http-body-util = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+hyper = { workspace = true }
