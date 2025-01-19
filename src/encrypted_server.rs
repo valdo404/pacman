@@ -24,12 +24,25 @@ async fn main() {
     server.await.unwrap();
 }
 
-/// Handles incoming requests by decrypting them and sending back an encrypted response.
 async fn handle_request(
     req: Request<Body>,
     encryption_layer: EncryptionLayer
 ) -> Result<Response<Body>, hyper::Error> {
+    match req.uri().path() {
+        "/health" => {
+            Ok(Response::new(Body::from("OK")))
+        }
+        _ => {
+            handle_encrypted_request(req, encryption_layer).await
+        }
+    }
+}
 
+/// Handles incoming encrypted requests
+async fn handle_encrypted_request(
+    req: Request<Body>,
+    encryption_layer: EncryptionLayer
+) -> Result<Response<Body>, hyper::Error> {
     println!("Server received a request!");
 
     // **Decrypt the request**
