@@ -7,14 +7,6 @@ edition = "2021"
 name = "pacman"
 path = "src/main.rs"
 
-[[bin]]
-name = "encrypted_server"
-path = "src/encrypted_server.rs"
-
-[[bin]]
-name = "encrypted_client"
-path = "src/encrypted_client.rs"
-
 [workspace]
 members = [
     "request_analysis",
@@ -53,4 +45,3 @@ tls-parser = "0.12.2"
 
 hyper-util = "0.1.10"
 hyper-tls = "0.6.0"
-
