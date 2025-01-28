@@ -26,15 +26,13 @@ async fn main() {
     let first_body: ByteStreamBody = to_transformed_body(encrypted_stream);
     let (parts, _): (Parts, ByteStreamBody) = prepare_request(first_body).into_parts();
 
-    // Create new bodies for both requests
     let encrypted_stream = encrypt_text(request_text, encryption_layer.clone());
     let curl_body: ByteStreamBody = to_transformed_body(encrypted_stream);
+    let curl_req: Request<ByteStreamBody> = Request::from_parts(parts.clone(), curl_body);
 
     let encrypted_stream = encrypt_text(request_text, encryption_layer.clone());
     let real_body: ByteStreamBody = to_transformed_body(encrypted_stream);
 
-    // Create both requests
-    let curl_req: Request<ByteStreamBody> = Request::from_parts(parts.clone(), curl_body);
     let real_req: Request<ByteStreamBody> = Request::from_parts(parts, real_body);
 
     println!("Equivalent curl command:");

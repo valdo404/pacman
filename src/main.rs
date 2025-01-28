@@ -1,4 +1,3 @@
-mod proxy;
 mod pac;
 mod logic;
 mod conditions;
@@ -14,10 +13,12 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
 use crate::proxy::{create_tls_config, handle_request};
+use crate::encryption::{EncryptionError, EncryptionLayer};
 use clap::Parser;
-use hyper::service::service_fn;
-use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
+use hyper::{service::service_fn, Request, Response};
+use hyper::server::Server;
+use hyper_util::client::Client;
+use hyper_util::client::connect::HttpConnector;
 
 #[derive(Parser, Debug)]
 #[command(name = "pacman")]
@@ -46,12 +47,7 @@ async fn run_http_server(
     addr: SocketAddr,
     client: Client<HttpConnector>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let server = Server::bind(&addr).serve(make_service_fn(move |_| {
-        let client = client.clone();
-        async move {
-            Ok::<_, Error>(service_fn(move |req| handle_request(req, client.clone())))
-        }
-    }));
+    let server = Server::bind(&addr).serve(service_fn(move |req: Request<Body>| handle_request(req, client.clone())));
 
     println!("HTTP Listening on http://{}", addr);
     server.await?;
@@ -88,7 +84,7 @@ async fn run_https_server(
                     println!("New TLS connection from {}: SNI: {}, Protocol: {:?}, Version: {:?}",
                              addr, sni, protocol, version);
 
-                    let service = service_fn(move |req| handle_request(req, client.clone()));
+                    let service = service_fn(move |req: Request<Body>| handle_request(req, client.clone()));
                     if let Err(e) = hyper::server::conn::Http::new()
                         .serve_connection(tls_stream, service)
                         .with_upgrades()
