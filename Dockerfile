@@ -6,7 +6,7 @@ COPY Cargo.toml Cargo.lock ./
 
 COPY . .
 
-RUN cargo build --release --bin encrypted_server
+RUN cargo build --release --bin encryption_server --bin encryption_client
 
 FROM debian:bookworm-slim
 
@@ -15,11 +15,12 @@ RUN apt-get update && \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /usr/src/pacman
+WORKDIR /usr/local/bin
 
-COPY --from=builder /usr/src/pacman/target/release/encrypted_server /usr/local/bin/encrypted_server
+COPY --from=builder /usr/src/pacman/target/release/encryption_server .
+COPY --from=builder /usr/src/pacman/target/release/encryption_client .
 
 EXPOSE 3000
 
-# Run the encrypted_server binary
-CMD ["encrypted_server"]
+# Default to running the server, but can be overridden with --entrypoint
+CMD ["encryption_server"]
