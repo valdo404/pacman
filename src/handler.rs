@@ -1,10 +1,12 @@
 use bytes::Bytes;
-use http_body_util::{BodyExt, Empty, Full};
+use http_body_util::{Empty, Full};
 use hyper::body::Incoming;
 use hyper::http::response::Builder;
 use hyper::{Method, StatusCode};
 use std::error::Error;
 use crate::tunnel::tunnel;
+use crate::forwarder::{Forwarder, DirectForwarder};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum ProxyError {
@@ -51,7 +53,7 @@ fn error_response(status: StatusCode) -> Result<hyper::Response<Full<Bytes>>, hy
 
 pub async fn handle_request(
     req: hyper::Request<Incoming>,
-    client: hyper_util::client::legacy::Client<hyper_util::client::legacy::connect::HttpConnector, Incoming>,
+    forwarder: Arc<dyn Forwarder>,
 ) -> Result<hyper::Response<Full<Bytes>>, ProxyError> {
     if Method::CONNECT == req.method() {
         if let Some(addr) = req.uri().authority().map(|auth| auth.to_string()) {
@@ -72,12 +74,8 @@ pub async fn handle_request(
             Ok(error_response(StatusCode::BAD_REQUEST)?)
         }
     } else {
-        match client.request(req).await {
-            Ok(response) => {
-                let (parts, body) = response.into_parts();
-                let bytes = body.collect().await?.to_bytes();
-                Ok(hyper::Response::from_parts(parts, Full::new(bytes)))
-            },
+        match forwarder.forward(req).await {
+            Ok(response) => Ok(response),
             Err(e) => {
                 eprintln!("Error forwarding request: {}", e);
                 Ok(error_response(StatusCode::BAD_GATEWAY)?)
