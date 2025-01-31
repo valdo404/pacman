@@ -9,8 +9,7 @@ path = "src/main.rs"
 
 [workspace]
 members = [
-    "encrypted_client",
-    "encrypted_server",
+    "encryption_service",
     "encryption",
     "request_analysis",
 ]
