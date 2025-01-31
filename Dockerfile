@@ -6,7 +6,7 @@ COPY Cargo.toml Cargo.lock ./
 
 COPY . .
 
-RUN cargo build --release --bin encryption_server --bin encryption_client
+RUN cargo build --release -p encryption_service --bin encryption_server --bin encryption_client
 
 FROM debian:bookworm-slim
 
