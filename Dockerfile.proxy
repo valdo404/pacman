@@ -1,0 +1,35 @@
+FROM rust:latest as builder
+
+WORKDIR /usr/src/pacman
+
+# Copy the entire workspace first
+COPY . .
+
+# Build only the pacman binary
+RUN cargo build --release --package pacman
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/local/bin
+
+# Copy the binary from builder
+COPY --from=builder /usr/src/pacman/target/release/pacman .
+
+# Create directory for TLS certificates
+RUN mkdir -p /etc/pacman/certs
+
+# Copy TLS certificates (these should be mounted at runtime)
+COPY certs/server.crt /etc/pacman/certs/
+COPY certs/server.key /etc/pacman/certs/
+
+# Expose HTTP and HTTPS ports
+EXPOSE 8080 8443
+
+# Set default command with certificate paths
+ENTRYPOINT ["pacman"]
+CMD ["--cert", "/etc/pacman/certs/server.crt", "--key", "/etc/pacman/certs/server.key", "--http-addr", "0.0.0.0:8080", "--https-addr", "0.0.0.0:8443"]

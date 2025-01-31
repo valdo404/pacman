@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use http_body_util::Empty;
+use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::Incoming;
 use hyper::http::response::Builder;
 use hyper::{Method, StatusCode};
@@ -43,16 +43,16 @@ impl std::fmt::Display for ProxyError {
 
 impl Error for ProxyError {}
 
-fn error_response(status: StatusCode) -> Result<hyper::Response<Empty<Bytes>>, hyper::http::Error> {
+fn error_response(status: StatusCode) -> Result<hyper::Response<Full<Bytes>>, hyper::http::Error> {
     Builder::new()
         .status(status)
-        .body(Empty::new())
+        .body(Full::new(Bytes::new()))
 }
 
 pub async fn handle_request(
     req: hyper::Request<Incoming>,
     client: hyper_util::client::legacy::Client<hyper_util::client::legacy::connect::HttpConnector, Incoming>,
-) -> Result<hyper::Response<Empty<Bytes>>, ProxyError> {
+) -> Result<hyper::Response<Full<Bytes>>, ProxyError> {
     if Method::CONNECT == req.method() {
         if let Some(addr) = req.uri().authority().map(|auth| auth.to_string()) {
             tokio::task::spawn(async move {
@@ -74,8 +74,9 @@ pub async fn handle_request(
     } else {
         match client.request(req).await {
             Ok(response) => {
-                let (parts, _) = response.into_parts();
-                Ok(hyper::Response::from_parts(parts, Empty::new()))
+                let (parts, body) = response.into_parts();
+                let bytes = body.collect().await?.to_bytes();
+                Ok(hyper::Response::from_parts(parts, Full::new(bytes)))
             },
             Err(e) => {
                 eprintln!("Error forwarding request: {}", e);

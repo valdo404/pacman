@@ -1,7 +1,7 @@
 use encryption::{encrypt_text, to_transformed_body, EncryptedStream, EncryptionLayer, ByteStreamBody};
 use http::{Method, Request, Response};
 use http_body_util::BodyExt;
-use hyper_tls::HttpsConnector;
+
 use hyper_util::rt::TokioExecutor;
 
 use futures_util::stream::StreamExt;
@@ -15,10 +15,9 @@ use std::error::Error;
 #[tokio::main]
 async fn main() {
     let encryption_layer: EncryptionLayer = EncryptionLayer::new(3);
-    let https: HttpsConnector<HttpConnector> = HttpsConnector::new();
-    let client: Client<HttpsConnector<HttpConnector>, ByteStreamBody> =
+        let client: Client<HttpConnector, ByteStreamBody> =
         Client::builder(TokioExecutor::new())
-            .build::<_, ByteStreamBody>(https);
+            .build::<_, ByteStreamBody>(HttpConnector::new());
 
     let request_text: &str = "This is a secure request but a bit different !";
 
@@ -52,7 +51,7 @@ async fn main() {
 fn prepare_request(encrypted_stream: ByteStreamBody) -> Request<ByteStreamBody> {
     Request::builder()
         .method(Method::POST)
-        .uri("https://dusty-perri-lapoule-dev-63b55446.koyeb.app/")
+        .uri("http://localhost:3000/")
         .header("Content-Type", "application/base32")
         .body(encrypted_stream) // Use the stream directly
         .unwrap()
