@@ -1,11 +1,11 @@
 use bytes::Bytes;
-use http_body_util::{Empty, Full};
+use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::http::response::Builder;
 use hyper::{Method, StatusCode};
 use std::error::Error;
 use crate::tunnel::tunnel;
-use crate::forwarder::{Forwarder, DirectForwarder};
+use crate::forwarder::Forwarder;
 use std::sync::Arc;
 
 #[derive(Debug)]

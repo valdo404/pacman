@@ -15,4 +15,4 @@ mod direct;
 mod proxy;
 
 pub use direct::DirectForwarder;
-pub use proxy::ProxyForwarder;
+
