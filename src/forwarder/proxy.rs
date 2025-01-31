@@ -42,10 +42,17 @@ impl ProxyForwarder {
 #[async_trait::async_trait]
 impl Forwarder for ProxyForwarder {
     async fn forward(&self, req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
+        println!("[PROXY] Forwarding {} {} via proxy to {}", req.method(), req.uri(), req.uri().host().unwrap_or("unknown"));
+        println!("[PROXY] Request headers: {:?}", req.headers());
         let req = self.rewrite_request(req);
+        println!("[PROXY] Rewritten request URI: {}", req.uri());
         let response = self.client.request(req).await?;
+        println!("[PROXY] Received response: {} from upstream", response.status());
+        println!("[PROXY] Response headers: {:?}", response.headers());
         let (parts, body) = response.into_parts();
         let bytes = body.collect().await?.to_bytes();
-        Ok(Response::from_parts(parts, Full::new(bytes)))
+        let response = Response::from_parts(parts, Full::new(bytes));
+        println!("[PROXY] Forwarding response to client");
+        Ok(response)
     }
 }

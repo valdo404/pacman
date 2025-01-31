@@ -55,6 +55,15 @@ pub async fn handle_request(
     req: hyper::Request<Incoming>,
     forwarder: Arc<dyn Forwarder>,
 ) -> Result<hyper::Response<Full<Bytes>>, ProxyError> {
+    println!("[HANDLER] {} {} from {}", 
+        req.method(), 
+        req.uri(),
+        req.headers().get("x-forwarded-for")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("direct")
+    );
+    println!("[HANDLER] Headers: {:?}", req.headers());
+    println!("[HANDLER] Version: {:?}", req.version());
     if Method::CONNECT == req.method() {
         if let Some(addr) = req.uri().authority().map(|auth| auth.to_string()) {
             tokio::task::spawn(async move {
