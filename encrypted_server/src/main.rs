@@ -1,11 +1,13 @@
 use bytes::Bytes;
-use encryption::{to_transformed_body, ByteStreamBody, EncryptedStream, EncryptionError, EncryptionLayer};
-use futures::{stream, StreamExt};
+use encryption::{to_transformed_body, ByteStreamBody, EncryptedStream, EncryptionLayer};
+use futures::stream;
+use futures::Future;
 use http_body_util::StreamBody;
-use http_body_util::BodyExt;
+use std::error::Error;
+use std::pin::Pin;
 
 use hyper::body::Incoming;
-use hyper::body::{Frame};
+use hyper::body::Frame;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
@@ -42,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 async fn handle_request(
     req: Request<Incoming>,
-) -> Result<Response<ByteStreamBody>, hyper::Error> {
+) -> Result<Response<ByteStreamBody>, Box<dyn Error + Send + Sync>> {
     // Example encryption layer, replace with actual logic
     let encryption_layer = EncryptionLayer::new(3);
 
@@ -54,16 +56,17 @@ async fn handle_request(
 
 fn string_to_byte_stream_body(input: String) -> ByteStreamBody {
     let stream = stream::once(async move {
-        Ok::<Frame<Bytes>, hyper::Error>(Frame::data(Bytes::from(input)))
+        Ok::<Frame<Bytes>, Box<dyn Error + Send + Sync>>(Frame::data(Bytes::from(input)))
     });
 
     StreamBody::new(Box::pin(stream))
 }
+
 /// Handle encrypted requests
 async fn handle_encrypted_request(
     req: Request<Incoming>,
     encryption_layer: EncryptionLayer,
-) -> Result<Response<ByteStreamBody>, hyper::Error> {
+) -> Result<Response<ByteStreamBody>, Box<dyn Error + Send + Sync>> {
     println!("Server received a request!");
 
     // Decrypt the request body
@@ -89,11 +92,11 @@ async fn handle_encrypted_request(
 
     // Encrypt the response body
     let response_text: &'static str = "Hello, this is a secure response!";
-    let encrypted_stream: EncryptedStream<_> = EncryptedStream::new(
-        futures::stream::once(async move { Ok(Bytes::from(response_text)) }),
+    let encrypted_stream = EncryptedStream::new(
+        Box::pin(stream::once(Box::pin(async move { Ok(Bytes::from(response_text)) }) as Pin<Box<dyn Future<Output = Result<Bytes, Box<dyn Error + Send + Sync>>> + Send>>)),
         encryption_layer,
         true, // Encrypt mode
     );
 
-    Ok(to_transformed_body(encrypted_stream))
+    Ok(Response::new(to_transformed_body(encrypted_stream)))
 }

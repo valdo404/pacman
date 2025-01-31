@@ -1,4 +1,4 @@
-use encryption::{encrypt_text, to_transformed_body, EncryptedStream, EncryptionError, EncryptionLayer, ByteStreamBody};
+use encryption::{encrypt_text, to_transformed_body, EncryptedStream, EncryptionLayer, ByteStreamBody};
 use http::{Method, Request, Response};
 use http_body_util::BodyExt;
 use hyper_tls::HttpsConnector;
@@ -10,6 +10,7 @@ use http::request::Parts;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use request_analysis::request_to_curl_command;
+use std::error::Error;
 
 #[tokio::main]
 async fn main() {
@@ -48,7 +49,6 @@ async fn main() {
     }
 }
 
-
 fn prepare_request(encrypted_stream: ByteStreamBody) -> Request<ByteStreamBody> {
     Request::builder()
         .method(Method::POST)
@@ -58,14 +58,13 @@ fn prepare_request(encrypted_stream: ByteStreamBody) -> Request<ByteStreamBody> 
         .unwrap()
 }
 
-
 async fn process_response(encryption_layer: EncryptionLayer, resp: Response<hyper::body::Incoming>) {
     println!("Response received, decrypting...");
 
     let (_, body) = resp.into_parts();
     let stream = body
         .into_data_stream()
-        .map_err(|_| EncryptionError::Decryption("Decryption failed".into()));
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
 
     let decrypted_stream = EncryptedStream::new(
         Box::pin(stream),
