@@ -3,6 +3,7 @@ mod logic;
 mod conditions;
 mod proxy_types;
 mod tunnel;
+mod forwarder;
 
 use rustls::ServerConfig;
 use std::{
@@ -15,9 +16,9 @@ use tokio_rustls::TlsAcceptor;
 use clap::Parser;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::TokioIo;
+use std::sync::Arc;
+use forwarder::{Forwarder, DirectForwarder};
 
 mod handler;
 mod config;
@@ -55,14 +56,13 @@ async fn run_http_server(
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
-        let client = Client::builder(TokioExecutor::new())
-            .build::<_, hyper::body::Incoming>(HttpConnector::new());
+        let forwarder = Arc::new(DirectForwarder::new()) as Arc<dyn Forwarder>;
 
         tokio::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
                     io,
-                    service_fn(move |req| handle_request(req, client.clone())),
+                    service_fn(move |req| handle_request(req, forwarder.clone())),
                 )
                 .with_upgrades()
                 .await
@@ -84,8 +84,7 @@ async fn run_https_server(
     while let Ok((stream, addr)) = listener.accept().await {
         println!("Accepted connection from {}", addr);
         let tls_acceptor = tls_acceptor.clone();
-        let client = Client::builder(TokioExecutor::new())
-            .build::<_, hyper::body::Incoming>(HttpConnector::new());
+        let forwarder = Arc::new(DirectForwarder::new()) as Arc<dyn Forwarder>;
 
         tokio::spawn(async move {
             match tls_acceptor.accept(stream).await {
@@ -108,7 +107,7 @@ async fn run_https_server(
                     if let Err(err) = http1::Builder::new()
                         .serve_connection(
                             io,
-                            service_fn(move |req| handle_request(req, client.clone())),
+                            service_fn(move |req| handle_request(req, forwarder.clone())),
                         )
                         .with_upgrades()
                         .await
