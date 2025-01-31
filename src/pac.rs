@@ -2,29 +2,26 @@ use crate::logic::PacExpression;
 use crate::conditions::{parse_condition, PacCondition};
 use crate::proxy_types::ProxyType;
 use boa_engine::ast::expression::literal::Literal;
-use boa_engine::ast::scope::Scope;
 use boa_engine::ast::statement::{If, Return};
 use boa_engine::ast::{Declaration, Expression, Script, Statement, StatementList, StatementListItem};
 use boa_engine::interner::Interner;
-use boa_engine::parser::Parser;
-use boa_engine::Source;
 
+#[allow(dead_code)]
 fn build_pac_expression(script: Script, interner: &Interner) -> Option<PacExpression> {
     for statement_item in script.statements().iter() {
         match statement_item {
-            StatementListItem::Declaration(dec  ) => {
+            StatementListItem::Declaration(dec) => {
                 return process_find_proxy(dec, interner);
             }
-
-            StatementListItem::Statement(statement) => {
+            StatementListItem::Statement(_) => {
                 return None;
             }
         }
     }
-
     None
 }
 
+#[allow(dead_code)]
 fn process_statement_list(statement_list: &StatementList, interner: &Interner) -> Option<PacExpression> {
     let mut expressions = Vec::new();
 
@@ -48,8 +45,7 @@ fn process_statement_list(statement_list: &StatementList, interner: &Interner) -
     }
 }
 
-
-
+#[allow(dead_code)]
 fn process_statement(statement: &Statement, interner: &Interner) -> Option<PacExpression> {
     match statement {
         Statement::If(if_stmt) => parse_if_method(interner, &if_stmt),
@@ -58,6 +54,7 @@ fn process_statement(statement: &Statement, interner: &Interner) -> Option<PacEx
     }
 }
 
+#[allow(dead_code)]
 fn parse_return(interner: &Interner, return_stmt: &Return) -> Option<PacExpression> {
     if let Some(expr) = return_stmt.target().clone() {
         if let Expression::Literal(literal) = expr {
@@ -75,6 +72,7 @@ fn parse_return(interner: &Interner, return_stmt: &Return) -> Option<PacExpressi
     }
 }
 
+#[allow(dead_code)]
 fn parse_if_method(interner: &Interner, if_stmt: &&If) -> Option<PacExpression> {
     let condition = parse_condition(&if_stmt.cond(), interner)?;
 
@@ -116,6 +114,7 @@ fn parse_if_method(interner: &Interner, if_stmt: &&If) -> Option<PacExpression> 
     Some(complete_expression)
 }
 
+#[allow(dead_code)]
 fn parse_find_proxy_body(statement_list: &StatementList, interner: &Interner) -> PacExpression {
     let mut current_expression = PacExpression::Proxy(ProxyType::Direct);
 
@@ -134,7 +133,7 @@ fn parse_find_proxy_body(statement_list: &StatementList, interner: &Interner) ->
     current_expression
 }
 
-
+#[allow(dead_code)]
 fn build_nested_condition(current: PacExpression, new_expr: PacExpression) -> PacExpression {
     // Create nested conditions or chain expressions
     match current {
@@ -161,7 +160,7 @@ fn build_nested_condition(current: PacExpression, new_expr: PacExpression) -> Pa
     }
 }
 
-
+#[allow(dead_code)]
 fn process_find_proxy(declaration: &Declaration, interner: &Interner) -> Option<PacExpression> {
     if let Declaration::FunctionDeclaration(function_decl) = declaration {
         if let Some(function_name) = interner.resolve(function_decl.name().sym()) {
@@ -173,12 +172,10 @@ fn process_find_proxy(declaration: &Declaration, interner: &Interner) -> Option<
     None
 }
 
-
 #[cfg(test)]
 mod to_js_tests {
 
 }
-
 
 #[cfg(test)]
 mod pac_files_test {

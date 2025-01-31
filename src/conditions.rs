@@ -5,7 +5,7 @@ use boa_engine::ast::expression::literal::Literal;
 use boa_engine::ast::expression::operator::Binary;
 use boa_engine::ast::expression::operator::binary::{BinaryOp, LogicalOp, RelationalOp};
 use boa_engine::interner::Interner;
-use crate::logic::{PacExpression, ToJs};
+use crate::logic::ToJs;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Protocol {
@@ -342,8 +342,8 @@ fn parse_host_equals(binary: &Binary, interner: &Interner) -> Option<PacConditio
         let ident_str = interner.resolve_expect(ident.sym()).to_string();
         if ident_str == "host" {
             if let Expression::Literal(Literal::String(domain)) = binary.rhs() {
-                let domain_str = interner.resolve_expect(*domain).to_string();
-                return Some(PacCondition::HostEquals(domain_str));
+                let domain = interner.resolve_expect(*domain);
+                return Some(PacCondition::HostEquals(domain.to_string()));
             }
         }
     }
@@ -677,6 +677,7 @@ fn parse_time_range(args: &[Expression], interner: &Interner) -> Option<PacCondi
     }
 }
 
+#[allow(dead_code)]
 fn parse_url_contains(args: &[Expression], interner: &Interner) -> Option<PacCondition> {
     if args.len() == 1 {
         if let Expression::Literal(Literal::String(text)) = &args[0] {

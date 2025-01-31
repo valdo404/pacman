@@ -5,20 +5,13 @@ mod proxy_types;
 
 use rustls::ServerConfig;
 use std::{
-    fmt::{Debug},
+    fmt::Debug,
     net::SocketAddr,
     sync::Arc,
 };
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
-
-use crate::proxy::{create_tls_config, handle_request};
-use crate::encryption::{EncryptionError, EncryptionLayer};
 use clap::Parser;
-use hyper::{service::service_fn, Request, Response};
-use hyper::server::Server;
-use hyper_util::client::Client;
-use hyper_util::client::connect::HttpConnector;
 
 #[derive(Parser, Debug)]
 #[command(name = "pacman")]
@@ -45,18 +38,22 @@ struct Args {
 
 async fn run_http_server(
     addr: SocketAddr,
-    client: Client<HttpConnector>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let server = Server::bind(&addr).serve(service_fn(move |req: Request<Body>| handle_request(req, client.clone())));
-
+    let listener = TcpListener::bind(addr).await?;
     println!("HTTP Listening on http://{}", addr);
-    server.await?;
+    
+    while let Ok((stream, _)) = listener.accept().await {
+        println!("Accepted HTTP connection from {}", stream.peer_addr()?);
+        // TODO: Implement HTTP request handling
+    }
+    
     Ok(())
 }
+
+#[allow(dead_code)]
 async fn run_https_server(
     addr: SocketAddr,
     tls_config: ServerConfig,
-    client: Client<HttpConnector>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
     let listener = TcpListener::bind(addr).await?;
@@ -65,7 +62,6 @@ async fn run_https_server(
     while let Ok((stream, addr)) = listener.accept().await {
         println!("Accepted connection from {}", addr);
         let tls_acceptor = tls_acceptor.clone();
-        let client = client.clone();
 
         tokio::spawn(async move {
             match tls_acceptor.accept(stream).await {
@@ -84,14 +80,6 @@ async fn run_https_server(
                     println!("New TLS connection from {}: SNI: {}, Protocol: {:?}, Version: {:?}",
                              addr, sni, protocol, version);
 
-                    let service = service_fn(move |req: Request<Body>| handle_request(req, client.clone()));
-                    if let Err(e) = hyper::server::conn::Http::new()
-                        .serve_connection(tls_stream, service)
-                        .with_upgrades()
-                        .await
-                    {
-                        eprintln!("Error serving TLS connection: {}", e);
-                    }
                 }
                 Err(e) => eprintln!("TLS handshake failed: {}", e),
             }
@@ -113,8 +101,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .parse()
         .expect("Invalid HTTPS address");
 
-    let tls_config: ServerConfig = create_tls_config(&args.cert, &args.key)?;
-
     println!("Starting proxy server:");
     println!("  HTTP on {}", http_addr);
     println!("  HTTPS on {}", https_addr);
@@ -122,14 +108,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Using key: {}", args.key);
 
     tokio::select! {
-        result = run_http_server(http_addr, Client::new()) => {
+        result = run_http_server(http_addr) => {
             if let Err(e) = result {
                 eprintln!("HTTP server error: {}", e);
-            }
-        }
-        result = run_https_server(https_addr, tls_config, Client::new()) => {
-            if let Err(e) = result {
-                eprintln!("HTTPS server error: {}", e);
             }
         }
     }
