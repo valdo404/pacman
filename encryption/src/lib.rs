@@ -9,11 +9,10 @@ use std::task::{Context, Poll};
 use futures::stream::Once;
 use futures::StreamExt;
 use hyper::body::Frame;
-use hyper::Error;
 
-pub type ConcreteFuture = Pin<Box<dyn Future<Output = Result<Bytes, EncryptionError>> + Send>>;
+pub type ConcreteFuture = Pin<Box<dyn Future<Output = Result<Bytes, Box<dyn StdError + Send + Sync>>> + Send + 'static>>;
 pub type ConcreteEncryptedStream = EncryptedStream<Pin<Box<Once<ConcreteFuture>>>>;
-pub type ByteStreamBody = StreamBody<Pin<Box<dyn futures::Stream<Item = Result<hyper::body::Frame<Bytes>, hyper::Error>> + Send>>>;
+pub type ByteStreamBody = StreamBody<Pin<Box<dyn Stream<Item = Result<Frame<Bytes>, Box<dyn StdError + Send + Sync>>> + Send + 'static>>>;
 
 pub fn encrypt_text(
     request_text: &str,
@@ -22,12 +21,11 @@ pub fn encrypt_text(
     let text = request_text.to_string();
 
     let stream: Once<ConcreteFuture> = futures::stream::once(Box::pin(async move {
-        Ok::<Bytes, EncryptionError>(Bytes::from(text))
+        Ok::<Bytes, Box<dyn StdError + Send + Sync>>(Bytes::from(text))
     }) as ConcreteFuture);
 
     EncryptedStream::new(Box::pin(stream), encryption_layer, true)
 }
-
 
 pub fn to_transformed_body(
     encrypted_stream: ConcreteEncryptedStream,
@@ -35,51 +33,13 @@ pub fn to_transformed_body(
     let mapped_stream = encrypted_stream.map(|result| {
         result
             .map(hyper::body::Frame::data)
-            .map_err(|enc_err| {
-                eprintln!("Encryption error: {:?}", enc_err);
-                // Hack: attempt to parse an invalid HTTP method, which yields `http::Error`,
-                // then convert that into a `hyper::Error`.
-                unimplemented!() as Error
-            })
+            .map_err(|enc_err| enc_err)
     });
 
     StreamBody::new(
         Box::pin(mapped_stream)
-            as Pin<Box<dyn Stream<Item = Result<Frame<Bytes>, hyper::Error>> + Send>>
+            as Pin<Box<dyn Stream<Item = Result<Frame<Bytes>, Box<dyn StdError + Send + Sync>>> + Send>>
     )
-}
-
-
-
-#[derive(Debug)]
-pub enum EncryptionError {
-    Io(std::io::Error),
-    Decryption(String),
-    Hyper(hyper::Error),
-}
-
-impl From<hyper::Error> for EncryptionError {
-    fn from(err: hyper::Error) -> Self {
-        EncryptionError::Hyper(err)
-    }
-}
-
-impl From<std::io::Error> for EncryptionError {
-    fn from(err: std::io::Error) -> Self {
-        EncryptionError::Io(err)
-    }
-}
-
-impl StdError for EncryptionError {}
-
-impl std::fmt::Display for EncryptionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            EncryptionError::Io(e) => write!(f, "IO error: {}", e),
-            EncryptionError::Decryption(e) => write!(f, "Decryption error: {}", e),
-            EncryptionError::Hyper(e) => write!(f, "Hyper error: {}", e),
-        }
-    }
 }
 
 /// EncryptionLayer provides a simple Caesar cipher style shifting mechanism
@@ -168,12 +128,11 @@ pub struct EncryptedStream<S> {
     inner: S,
     /// The encryption layer used for encryption or decryption.
     encryption: EncryptionLayer,
-    /// A buffer for holding intermediate data.
-    buffer: BytesMut,
     /// Determines whether the stream should encrypt (`true`) or decrypt (`false`).
     encrypting: bool,
+    #[allow(dead_code)]
+    buffer: BytesMut,
 }
-
 
 impl<S> EncryptedStream<S> {
     /// Creates a new `EncryptedStream`.
@@ -190,14 +149,13 @@ impl<S> EncryptedStream<S> {
             encrypting,
         }
     }
-
 }
 
 impl<S> Stream for EncryptedStream<S>
 where
-    S: Stream<Item = Result<Bytes, EncryptionError>> + Unpin,
+    S: Stream<Item = Result<Bytes, Box<dyn StdError + Send + Sync>>> + Unpin,
 {
-    type Item = Result<Bytes, EncryptionError>;
+    type Item = Result<Bytes, Box<dyn StdError + Send + Sync>>;
 
     /// Polls the next chunk of data from the stream and processes it.
     ///
@@ -211,7 +169,7 @@ where
                 } else {
                     match self.encryption.decrypt_chunk(&data) {
                         Some(decrypted) => Bytes::from(decrypted),
-                        None => return Poll::Ready(Some(Err(EncryptionError::Decryption("Decryption failed".into())))),
+                        None => return Poll::Ready(Some(Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed"))))),
                     }
                 };
                 Poll::Ready(Some(Ok(processed)))
