@@ -1,0 +1,25 @@
+[package]
+name = "encryption_service"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "encryption_server"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "encryption_client"
+path = "src/bin/client.rs"
+
+[dependencies]
+encryption = { path = "../encryption" }
+request_analysis = { path = "../request_analysis" }
+tokio = { workspace = true }
+hyper = { workspace = true, features = ["server", "client", "http1"] }
+hyper-tls = { workspace = true }
+hyper-util = { workspace = true, features = ["client", "http1"] }
+http = { workspace = true }
+http-body-util = { workspace = true }
+bytes = "1.5.0"
+futures = { workspace = true }
+futures-util = { workspace = true }
