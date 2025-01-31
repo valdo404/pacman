@@ -72,23 +72,23 @@ async fn handle_encrypted_request(
     // Decrypt the request body
     let (_, body) = req.into_parts();
 
-    // let decrypted_stream = Box::pin(EncryptedStream::new(
-    //     StreamReader::new(body).map_err(|e| EncryptionError::Decryption(format!("Failed to read body: {}", e))),
-    //     encryption_layer.clone(),
-    //     false, // Decrypt mode
-    // ));
+    let decrypted_stream = Box::pin(EncryptedStream::new(
+        Box::pin(body.map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)),
+        encryption_layer.clone(),
+        false, // Decrypt mode
+    ));
 
-    // let mut decrypted_body = Vec::new();
-    // while let Some(chunk) = decrypted_stream.next().await {
-    //     match chunk {
-    //         Ok(data) => decrypted_body.extend_from_slice(&data.to_vec()),
-    //         Err(e) => {
-    //             return Err(hyper::Error::new(e));
-    //         }
-    //     }
-    // }
+    let mut decrypted_body = Vec::new();
+    while let Some(chunk) = decrypted_stream.next().await {
+        match chunk {
+            Ok(data) => decrypted_body.extend_from_slice(&data.to_vec()),
+            Err(e) => {
+                return Err(Box::new(e));
+            }
+        }
+    }
 
-    println!("Decrypted Request: {:?}", "Decryption commented out");
+    println!("Decrypted Request: {:?}", String::from_utf8_lossy(&decrypted_body));
 
     // Encrypt the response body
     let response_text: &'static str = "Hello, this is a secure response!";

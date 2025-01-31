@@ -513,7 +513,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
 
 [[package]]
-name = "encrypted_client"
+name = "encryption"
+version = "0.1.0"
+dependencies = [
+ "base32",
+ "bytes",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper",
+]
+
+[[package]]
+name = "encryption_service"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -527,31 +539,6 @@ dependencies = [
  "hyper-util",
  "request_analysis",
  "tokio",
-]
-
-[[package]]
-name = "encrypted_server"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "encryption",
- "futures",
- "http-body-util",
- "hyper",
- "hyper-util",
- "tokio",
-]
-
-[[package]]
-name = "encryption"
-version = "0.1.0"
-dependencies = [
- "base32",
- "bytes",
- "futures",
- "http",
- "http-body-util",
- "hyper",
 ]
 
 [[package]]
@@ -1354,16 +1341,22 @@ version = "0.1.0"
 dependencies = [
  "boa_engine",
  "boa_parser",
+ "bytes",
  "clap",
+ "futures",
+ "futures-util",
  "http",
+ "http-body-util",
  "hyper",
  "hyper-tls",
  "hyper-util",
+ "pin-project-lite",
  "rustls",
  "rustls-pemfile",
  "tls-parser",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
 ]
 
 [[package]]
@@ -2080,6 +2073,7 @@ checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",
