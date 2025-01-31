@@ -2,7 +2,7 @@ use bytes::Bytes;
 use encryption::{to_transformed_body, ByteStreamBody, EncryptedStream, EncryptionLayer};
 use futures::stream;
 use futures::Future;
-use http_body_util::StreamBody;
+use http_body_util::{BodyExt, StreamBody};
 use std::error::Error;
 use std::pin::Pin;
 
@@ -17,7 +17,7 @@ use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
 
     // Bind the TCP listener to the address
     let listener = TcpListener::bind(addr).await?;
@@ -72,19 +72,15 @@ async fn handle_encrypted_request(
     // Decrypt the request body
     let (_, body) = req.into_parts();
 
-    let decrypted_stream = Box::pin(EncryptedStream::new(
-        Box::pin(body.map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)),
-        encryption_layer.clone(),
-        false, // Decrypt mode
-    ));
-
     let mut decrypted_body = Vec::new();
-    while let Some(chunk) = decrypted_stream.next().await {
-        match chunk {
-            Ok(data) => decrypted_body.extend_from_slice(&data.to_vec()),
-            Err(e) => {
-                return Err(Box::new(e));
-            }
+    let mut body = body;
+    
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+        if let Some(data) = frame.data_ref() {
+            let decrypted = encryption_layer.decrypt_chunk(data)
+                .ok_or_else(|| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "Decryption failed")) as Box<dyn Error + Send + Sync>)?;
+            decrypted_body.extend_from_slice(&decrypted);
         }
     }
 
