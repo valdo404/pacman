@@ -1,10 +1,8 @@
-mod proxy;
 mod pac;
 mod logic;
 mod conditions;
 mod proxy_types;
 mod tunnel;
-mod tls;
 
 use rustls::ServerConfig;
 use std::{
@@ -14,14 +12,18 @@ use std::{
 };
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
-use crate::proxy::handle_request;
 use clap::Parser;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use tls::create_tls_config;
+
+mod handler;
+mod config;
+
+use handler::handle_request;
+use config::create_tls_config;
 
 #[derive(Parser, Debug)]
 #[command(name = "pacman")]
