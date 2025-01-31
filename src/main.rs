@@ -17,7 +17,7 @@ use clap::Parser;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use std::sync::Arc;
+
 use forwarder::{Forwarder, DirectForwarder};
 
 mod handler;

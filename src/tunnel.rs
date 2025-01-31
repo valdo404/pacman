@@ -1,5 +1,5 @@
 use hyper::upgrade::Upgraded;
-use tokio::io::{copy_bidirectional, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 
 use std::pin::Pin;
@@ -113,7 +113,7 @@ pub fn extract_tls_info(data: &[u8]) -> Option<OwnedClientHello> {
 
 pub async fn tunnel(upgraded: Upgraded, addr: String) -> std::io::Result<()> {
     let upstream = TcpStream::connect(&addr).await?;
-    let mut io = UpgradedIo(upgraded);
+    let io = UpgradedIo(upgraded);
     
     let (mut client_read, mut client_write) = tokio::io::split(io);
     let (mut upstream_read, mut upstream_write) = upstream.into_split();
