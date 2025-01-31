@@ -5,9 +5,10 @@ use futures_util::StreamExt;
 use http::{Method, Request};
 use http_body_util::StreamBody;
 use hyper::body::Frame;
+use std::error::Error;
 
 async fn collect_body(
-    mut req_body: StreamBody<Pin<Box<dyn Stream<Item=Result<Frame<Bytes>, hyper::Error>> + Send>>>,
+    mut req_body: StreamBody<Pin<Box<dyn Stream<Item=Result<Frame<Bytes>, Box<dyn Error + Send + Sync>>> + Send>>>,
     size_limit: usize,
 ) -> Result<BytesMut, String> {
     let mut body = BytesMut::new();
@@ -28,7 +29,7 @@ async fn collect_body(
 }
 
 pub async fn request_to_curl_command(
-    req: Request<StreamBody<Pin<Box<dyn Stream<Item=Result<Frame<Bytes>, hyper::Error>> + Send>>>>,
+    req: Request<StreamBody<Pin<Box<dyn Stream<Item=Result<Frame<Bytes>, Box<dyn Error + Send + Sync>>> + Send>>>>,
 ) -> String {
     let mut curl = format!("curl -X {} '{}'", req.method(), req.uri());
 
@@ -50,7 +51,7 @@ pub async fn request_to_curl_command(
                 curl.push_str(&format!(" \\\n  --data '{}'", data_str));
             }
             Err(e) => {
-                println!("Failed to read body: {}", e);
+                curl.push_str(&format!(" \\\n  # Error reading body: {}", e));
             }
         }
     }
