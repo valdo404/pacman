@@ -5,6 +5,7 @@ use http::header::HeaderMap;
 use http_body_util::{BodyExt, Full};
 use hyper::{body::Incoming, Request, Response, Uri};
 use hyper_util::{client::legacy::{connect::HttpConnector, Client}, rt::TokioExecutor};
+use hyper_tls::HttpsConnector;
 use std::{error::Error, fmt};
 
 use super::{ByteStreamBody, Forwarder};
@@ -58,7 +59,7 @@ mod tests {
 }
 
 pub struct ProxyForwarder {
-    client: Client<HttpConnector, ByteStreamBody>,
+    client: Client<HttpsConnector<HttpConnector>, ByteStreamBody>,
     proxy_uri: Uri,
     proxy_headers: HeaderMap,
 }
@@ -87,9 +88,10 @@ impl Forwarder for ProxyForwarder {
 
 impl ProxyForwarder {
     pub fn new(proxy_uri: Uri, proxy_headers: HeaderMap) -> Self {
+        let https = HttpsConnector::new();
         Self {
             client: Client::builder(TokioExecutor::new())
-                .build::<_, ByteStreamBody>(HttpConnector::new()),
+                .build::<_, ByteStreamBody>(https),
             proxy_uri,
             proxy_headers,
         }
@@ -110,8 +112,11 @@ impl ProxyForwarder {
             .map(|pq| pq.as_str())
             .unwrap_or("/");
 
+        // Preserve the original scheme or default to http
+        let scheme = uri.scheme_str().unwrap_or("http");
+        
         // Construct absolute URI with scheme, host, and path
-        let target_uri = format!("http://{}{}", host, path_and_query)
+        let target_uri = format!("{scheme}://{}{}", host, path_and_query)
             .parse::<Uri>()
             .map_err(|e| ProxyError::Configuration(e.to_string()))?;
 

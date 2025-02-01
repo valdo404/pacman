@@ -49,9 +49,9 @@ rustls-pemfile = { workspace = true }
 clap = { workspace = true }
 boa_engine = { workspace = true }
 boa_parser = { workspace = true }
+hyper-tls = { workspace = true }
 tls-parser = { workspace = true }
 async-trait = { workspace = true }
 tokio-util = { workspace = true }
 hyper-util = { workspace = true }
-hyper-tls = { workspace = true }
 pin-project-lite = { workspace = true }
