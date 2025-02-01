@@ -87,10 +87,13 @@ impl Forwarder for ProxyForwarder {
 }
 
 impl ProxyForwarder {
-    pub fn new(proxy_uri: Uri, proxy_headers: HeaderMap) -> Self {
-        let https = HttpsConnector::new();
+    pub fn new(proxy_uri: Uri, proxy_headers: HeaderMap, insecure: bool) -> Self {
+        let mut http = HttpConnector::new();
+        http.enforce_http(false);
+        let https = HttpsConnector::new_with_connector(http);
         Self {
             client: Client::builder(TokioExecutor::new())
+                .pool_idle_timeout(std::time::Duration::from_secs(30))
                 .build::<_, ByteStreamBody>(https),
             proxy_uri,
             proxy_headers,

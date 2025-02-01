@@ -51,11 +51,16 @@ struct Args {
     /// Upstream proxy to forward requests to
     #[arg(long)]
     proxy: Option<String>,
+
+    /// Skip TLS verification when connecting to upstream proxy
+    #[arg(long)]
+    insecure: bool,
 }
 
 async fn run_http_server(
     addr: SocketAddr,
     proxy_uri: Option<String>,
+    insecure: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let listener = TcpListener::bind(addr).await?;
     println!("HTTP Listening on http://{}", addr);
@@ -64,7 +69,8 @@ async fn run_http_server(
         println!("Using upstream proxy: {}", proxy_uri);
         Arc::new(ProxyForwarder::new(
             proxy_uri.parse::<Uri>().expect("Invalid proxy URI"),
-            HeaderMap::new()
+            HeaderMap::new(),
+            insecure
         ))
     } else {
         Arc::new(DirectForwarder::new())
@@ -163,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Using key: {}", args.key);
 
     tokio::select! {
-        result = run_http_server(http_addr, args.proxy) => {
+        result = run_http_server(http_addr, args.proxy, args.insecure) => {
             if let Err(e) = result {
                 eprintln!("HTTP server error: {}", e);
             }
