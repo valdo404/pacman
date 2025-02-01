@@ -1,5 +1,5 @@
-use crate::logic::PacExpression;
 use crate::conditions::{parse_condition, PacCondition};
+use crate::logic::PacExpression;
 use crate::proxy_types::ProxyType;
 use boa_engine::ast::expression::literal::Literal;
 use boa_engine::ast::statement::{If, Return};
@@ -179,12 +179,12 @@ mod to_js_tests {
 
 #[cfg(test)]
 mod pac_files_test {
-    use boa_engine::{js_string, Context, JsString, JsValue, NativeFunction};
-    use boa_engine::object::ObjectInitializer;
-    use boa_engine::property::Attribute;
     use super::*;
     use crate::conditions::{PacCondition, Protocol};
     use crate::logic::ToJs;
+    use boa_engine::ast::scope::Scope;
+    use boa_engine::{Context, JsString, JsValue, NativeFunction};
+    use boa_parser::{Parser, Source};
 
     #[test]
     fn test_company_pac_file() {

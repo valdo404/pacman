@@ -1,11 +1,11 @@
+use crate::forwarder::{convert_request_body, Forwarder};
+use crate::tunnel::tunnel;
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::http::response::Builder;
 use hyper::{Method, StatusCode};
 use std::error::Error;
-use crate::tunnel::tunnel;
-use crate::forwarder::Forwarder;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -83,7 +83,9 @@ pub async fn handle_request(
             Ok(error_response(StatusCode::BAD_REQUEST)?)
         }
     } else {
-        match forwarder.forward(req).await {
+        
+        
+        match forwarder.forward(convert_request_body(req)).await {
             Ok(response) => Ok(response),
             Err(e) => {
                 eprintln!("Error forwarding request: {}", e);
@@ -92,3 +94,5 @@ pub async fn handle_request(
         }
     }
 }
+
+

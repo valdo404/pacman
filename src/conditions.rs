@@ -1042,7 +1042,7 @@ mod condition_tests {
 
 #[cfg(test)]
 mod to_js_tests {
-    use crate::logic::{ToJs};
+    use crate::logic::{PacExpression, ToJs};
     use crate::proxy_types::ProxyType;
     use super::*;
 

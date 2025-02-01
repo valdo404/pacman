@@ -18,7 +18,9 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 
-use forwarder::{Forwarder, DirectForwarder};
+use forwarder::{Forwarder, DirectForwarder, ProxyForwarder};
+use http::header::HeaderMap;
+use hyper::Uri;
 
 mod handler;
 mod config;
@@ -45,18 +47,33 @@ struct Args {
     /// HTTPS proxy listen address
     #[arg(long, default_value = "127.0.0.1:8443")]
     https_addr: String,
+
+    /// Upstream proxy to forward requests to
+    #[arg(long)]
+    proxy: Option<String>,
 }
 
 async fn run_http_server(
     addr: SocketAddr,
+    proxy_uri: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let listener = TcpListener::bind(addr).await?;
     println!("HTTP Listening on http://{}", addr);
 
+    let forwarder: Arc<dyn Forwarder> = if let Some(proxy_uri) = proxy_uri {
+        println!("Using upstream proxy: {}", proxy_uri);
+        Arc::new(ProxyForwarder::new(
+            proxy_uri.parse::<Uri>().expect("Invalid proxy URI"),
+            HeaderMap::new()
+        ))
+    } else {
+        Arc::new(DirectForwarder::new())
+    };
+
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
-        let forwarder = Arc::new(DirectForwarder::new()) as Arc<dyn Forwarder>;
+        let forwarder = forwarder.clone();
 
         tokio::spawn(async move {
             if let Err(err) = http1::Builder::new()
@@ -146,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Using key: {}", args.key);
 
     tokio::select! {
-        result = run_http_server(http_addr) => {
+        result = run_http_server(http_addr, args.proxy) => {
             if let Err(e) = result {
                 eprintln!("HTTP server error: {}", e);
             }

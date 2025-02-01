@@ -1,21 +1,22 @@
+use std::error::Error;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
-use hyper::{body::Incoming, Request, Response};
+use hyper::{Request, Response};
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use hyper_util::client::legacy::connect::HttpConnector;
 
-use super::Forwarder;
+use super::{ByteStreamBody, Forwarder};
 
 /// DirectForwarder forwards requests directly to their target URL
 pub struct DirectForwarder {
-    client: Client<HttpConnector, Incoming>,
+    client: Client<HttpConnector, ByteStreamBody>,
 }
 
 impl DirectForwarder {
     pub fn new() -> Self {
         Self {
             client: Client::builder(TokioExecutor::new())
-                .build::<_, hyper::body::Incoming>(HttpConnector::new()),
+                .build::<_, ByteStreamBody>(HttpConnector::new()),
         }
     }
 }
@@ -28,7 +29,7 @@ impl Default for DirectForwarder {
 
 #[async_trait::async_trait]
 impl Forwarder for DirectForwarder {
-    async fn forward(&self, req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn forward(&self, req: Request<ByteStreamBody>) -> Result<hyper::Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
         println!("[DIRECT] Forwarding {} {} to {}", req.method(), req.uri(), req.uri().host().unwrap_or("unknown"));
         println!("[DIRECT] Request headers: {:?}", req.headers());
         let response = self.client.request(req).await?;
