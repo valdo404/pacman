@@ -3,7 +3,7 @@
 use bytes::Bytes;
 use http::header::HeaderMap;
 use http_body_util::{BodyExt, Full};
-use hyper::{body::Incoming, Request, Response, Uri};
+use hyper::{Request, Response, Uri};
 use hyper_util::{client::legacy::{connect::HttpConnector, Client}, rt::TokioExecutor};
 use hyper_tls::HttpsConnector;
 use std::{error::Error, fmt};
@@ -67,17 +67,63 @@ pub struct ProxyForwarder {
 
 #[async_trait::async_trait]
 impl Forwarder for ProxyForwarder {
-    async fn forward(&self, req: Request<ByteStreamBody>) -> Result<hyper::Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
-        println!("[PROXY] Forwarding {} {} via proxy to {}",
+    async fn forward(&self, mut req: Request<ByteStreamBody>) -> Result<hyper::Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
+        use http::header::HOST;
+
+        println!("[PROXY] Forwarding {} {} via proxy {}",
                  req.method(),
                  req.uri(),
-                 req.uri().host().unwrap_or("unknown")
+                 self.proxy_uri
         );
 
-        let rewritten_req: Request<ByteStreamBody> = self.rewrite_request(req)?;
-        println!("[PROXY] Rewritten request URI: {}", rewritten_req.uri());
+        // For CONNECT requests, forward them as-is to the upstream proxy
+        if req.method() == hyper::Method::CONNECT {
+            req.headers_mut().extend(self.proxy_headers.clone());
+            let incoming_response = self.client.request(req).await?;
+            let (parts, body) = incoming_response.into_parts();
+            let bytes = body.collect().await?.to_bytes();
+            return Ok(Response::from_parts(parts, Full::new(bytes)));
+        }
 
-        let incoming_response: Response<Incoming> = self.client.request(rewritten_req).await?;
+        // For other requests, preserve the original URI but send through proxy
+        let original_uri = req.uri().clone();
+        
+        // Ensure host header is set
+        if !req.headers().contains_key(HOST) {
+            if let Some(host) = original_uri.host() {
+                let mut host_value = host.to_string();
+                if let Some(port) = original_uri.port_u16() {
+                    host_value.push(':');
+                    host_value.push_str(&port.to_string());
+                }
+                req.headers_mut().insert(HOST, host_value.parse().unwrap());
+            }
+        }
+
+        // Add proxy headers
+        req.headers_mut().extend(self.proxy_headers.clone());
+
+        // Make sure we have an absolute URI
+        if original_uri.scheme().is_none() || original_uri.authority().is_none() {
+            // If URI is not absolute, make it absolute using the Host header
+            let host = req.headers().get(HOST)
+                .and_then(|h| h.to_str().ok())
+                .ok_or_else(|| ProxyError::Configuration("Missing Host header".to_string()))?;
+
+            let scheme = original_uri.scheme_str().unwrap_or("http");
+            let path_and_query = original_uri.path_and_query()
+                .map(|p| p.as_str())
+                .unwrap_or("/");
+
+            let absolute_uri = format!("{scheme}://{}{}", host, path_and_query)
+                .parse::<Uri>()
+                .map_err(|e| ProxyError::Configuration(e.to_string()))?;
+
+            *req.uri_mut() = absolute_uri;
+        }
+
+        println!("[PROXY] Request URI: {}", req.uri());
+        let incoming_response = self.client.request(req).await?;
         println!("[PROXY] Received response: {}", incoming_response.status());
 
         let (parts, body) = incoming_response.into_parts();
@@ -100,32 +146,8 @@ impl ProxyForwarder {
         }
     }
 
-    fn rewrite_request(&self, mut req: Request<ByteStreamBody>) -> Result<Request<ByteStreamBody>, ProxyError> {
-        let uri = req.uri();
-
-        // Get the host from headers or return error
-        let host = req.headers()
-            .get("host")
-            .and_then(|h| h.to_str().ok())
-            .or_else(|| req.uri().host())
-            .ok_or_else(|| ProxyError::Configuration("Missing host header and unable to extract from URI".to_string()))?;
-
-        // Construct the target URL using the host and the original path
-        let path_and_query = uri.path_and_query()
-            .map(|pq| pq.as_str())
-            .unwrap_or("/");
-
-        // Preserve the original scheme or default to http
-        let scheme = uri.scheme_str().unwrap_or("http");
-        
-        // Construct absolute URI with scheme, host, and path
-        let target_uri = format!("{scheme}://{}{}", host, path_and_query)
-            .parse::<Uri>()
-            .map_err(|e| ProxyError::Configuration(e.to_string()))?;
-
-        *req.uri_mut() = target_uri;
-        req.headers_mut().extend(self.proxy_headers.clone());
-
+    // No longer needed as the logic is now in forward()
+    fn rewrite_request(&self, req: Request<ByteStreamBody>) -> Result<Request<ByteStreamBody>, ProxyError> {
         Ok(req)
     }
 }
