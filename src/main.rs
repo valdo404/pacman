@@ -67,9 +67,11 @@ async fn run_http_server(
 
     let forwarder: Arc<dyn Forwarder> = if let Some(proxy_uri) = proxy_uri {
         println!("Using upstream proxy: {}", proxy_uri);
+        let mut headers = HeaderMap::new();
+        // Add any custom headers for the upstream proxy if needed
         Arc::new(ProxyForwarder::new(
             proxy_uri.parse::<Uri>().expect("Invalid proxy URI"),
-            HeaderMap::new(),
+            headers,
             insecure
         ))
     } else {
@@ -99,15 +101,30 @@ async fn run_http_server(
 async fn run_https_server(
     addr: SocketAddr,
     tls_config: ServerConfig,
+    proxy_uri: Option<String>,
+    insecure: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
     let listener = TcpListener::bind(addr).await?;
     println!("HTTPS Listening on https://{}", addr);
 
+    let forwarder: Arc<dyn Forwarder> = if let Some(proxy_uri) = proxy_uri {
+        println!("Using upstream proxy: {}", proxy_uri);
+        let mut headers = HeaderMap::new();
+        // Add any custom headers for the upstream proxy if needed
+        Arc::new(ProxyForwarder::new(
+            proxy_uri.parse::<Uri>().expect("Invalid proxy URI"),
+            headers,
+            insecure
+        ))
+    } else {
+        Arc::new(DirectForwarder::new())
+    };
+
     while let Ok((stream, addr)) = listener.accept().await {
         println!("Accepted connection from {}", addr);
         let tls_acceptor = tls_acceptor.clone();
-        let forwarder = Arc::new(DirectForwarder::new()) as Arc<dyn Forwarder>;
+        let forwarder = forwarder.clone();
 
         tokio::spawn(async move {
             match tls_acceptor.accept(stream).await {
@@ -169,12 +186,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Using key: {}", args.key);
 
     tokio::select! {
-        result = run_http_server(http_addr, args.upstream_proxy, args.upstream_insecure) => {
+        result = run_http_server(http_addr, args.upstream_proxy.clone(), args.upstream_insecure) => {
             if let Err(e) = result {
                 eprintln!("HTTP server error: {}", e);
             }
         }
-        result = run_https_server(https_addr, tls_config) => {
+        result = run_https_server(https_addr, tls_config, args.upstream_proxy, args.upstream_insecure) => {
             if let Err(e) = result {
                 eprintln!("HTTPS server error: {}", e);
             }
