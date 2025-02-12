@@ -9,3 +9,8 @@
 
 # macOS files
 .DS_Store
+
+# Certificates
+*.crt
+*.key
+*.pem

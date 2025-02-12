@@ -1,10 +1,12 @@
+use crate::forwarder::{convert_request_body, Forwarder};
+use crate::tunnel::tunnel;
 use bytes::Bytes;
-use http_body_util::{BodyExt, Empty, Full};
+use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::http::response::Builder;
 use hyper::{Method, StatusCode};
 use std::error::Error;
-use crate::tunnel::tunnel;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum ProxyError {
@@ -51,8 +53,17 @@ fn error_response(status: StatusCode) -> Result<hyper::Response<Full<Bytes>>, hy
 
 pub async fn handle_request(
     req: hyper::Request<Incoming>,
-    client: hyper_util::client::legacy::Client<hyper_util::client::legacy::connect::HttpConnector, Incoming>,
+    forwarder: Arc<dyn Forwarder>,
 ) -> Result<hyper::Response<Full<Bytes>>, ProxyError> {
+    println!("[HANDLER] {} {} from {}", 
+        req.method(), 
+        req.uri(),
+        req.headers().get("x-forwarded-for")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("direct")
+    );
+    println!("[HANDLER] Headers: {:?}", req.headers());
+    println!("[HANDLER] Version: {:?}", req.version());
     if Method::CONNECT == req.method() {
         if let Some(addr) = req.uri().authority().map(|auth| auth.to_string()) {
             tokio::task::spawn(async move {
@@ -72,12 +83,10 @@ pub async fn handle_request(
             Ok(error_response(StatusCode::BAD_REQUEST)?)
         }
     } else {
-        match client.request(req).await {
-            Ok(response) => {
-                let (parts, body) = response.into_parts();
-                let bytes = body.collect().await?.to_bytes();
-                Ok(hyper::Response::from_parts(parts, Full::new(bytes)))
-            },
+        
+        
+        match forwarder.forward(convert_request_body(req)).await {
+            Ok(response) => Ok(response),
             Err(e) => {
                 eprintln!("Error forwarding request: {}", e);
                 Ok(error_response(StatusCode::BAD_GATEWAY)?)
@@ -85,3 +94,5 @@ pub async fn handle_request(
         }
     }
 }
+
+
